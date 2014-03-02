@@ -35,7 +35,8 @@
 #include <getopt.h>
 
 #include "util.h"
-#include "fuse_listener.h"
+//#include "fuse_common.h"
+//#include "fuse_listener.h"
 
 #ifdef NOIOCTL
 #include <assert.h>
@@ -58,47 +59,29 @@
 //#include <zone.h>
 #include <sys/fs/zfs.h>
 //#include <zfsfuse.h>
-
+#include <sys/mount.h>
+#include <sys/systm.h>
 #include <sys/stat.h>
 
-//#include <libzfs.h>
+#include <libzfs.h>
 
 #include "new_zpool_util.h"
 #include "zfs_comutil.h"
 
 pthread_t storage_create_thread_id;
-pthread_t listener_thread_id;
+//pthread_t listener_thread_id;
 
 #endif //NOIOCTL
 
 static const char *cf_pidfile = NULL;
 static int cf_daemonize = 1;
 
-static void exit_handler(int sig)
-{
-	exit_fuse_listener = B_TRUE;
-}
-
-static int set_signal_handler(int sig, void (*handler)(int))
-{
-	struct sigaction sa;
-
-	memset(&sa, 0, sizeof(struct sigaction));
-
-	sa.sa_handler = handler;
-	sigemptyset(&(sa.sa_mask));
-	sa.sa_flags = 0;
-
-	if(sigaction(sig, &sa, NULL) == -1) {
-		perror("sigaction");
-		return -1;
-	}
-
-	return 0;
-}
-
 extern char *optarg;
 extern int optind, opterr, optopt;
+
+extern vfsops_t *zfs_vfsops;
+extern vfs_t*  s_vfs;
+vfs_t*  s_vfs;
 
 static struct option longopts[] = {
 	{ "no-daemon",
@@ -156,7 +139,31 @@ static void parse_args(int argc, char *argv[])
 }
 
 
-static int create_storage(char* storage_path, char* mountdir){
+static vfs_t* prepare_storage(zfs_handle_t *zfs_handle, char* name, char* mountdir){
+	char mountpoint[ZFS_MAXPROPLEN];
+
+	if (!zfs_is_mountable(zfs_handle, mountpoint, sizeof (mountpoint), NULL))
+	    return (0);
+
+	vfs_t *vfs = kmem_zalloc(sizeof(vfs_t), KM_SLEEP);
+	if(vfs == NULL){
+	    errno = ENOMEM;
+	    return NULL;
+	}
+
+	VFS_INIT(vfs, zfs_vfsops, 0);
+	VFS_HOLD(vfs);
+
+	struct mounta uap = {name, mountdir, MS_SYSSPACE, NULL, "", 0};
+	int ret;
+	if ((ret = VFS_MOUNT(vfs, rootdir, &uap, kcred)) != 0) {
+	    kmem_free(vfs, sizeof(vfs_t));
+	    return NULL;
+	}
+	return vfs;
+}
+
+static int create_storage(char* storage_path, char* name, char* mountdir){
 	int ret;
 	nvlist_t *nvroot;
 	nvlist_t *fsprops = NULL;
@@ -188,9 +195,9 @@ static int create_storage(char* storage_path, char* mountdir){
 	/*
 	 * Hand off to libzfs.
 	 */
-	if (zpool_create(g_zfs, mountdir,
+	if (zpool_create(g_zfs, name,
 			 nvroot, props, fsprops) == 0) {
-	    zfs_handle_t *pool = zfs_open(g_zfs, mountdir,
+	    zfs_handle_t *pool = zfs_open(g_zfs, name,
 					  ZFS_TYPE_FILESYSTEM);
 	    if (pool != NULL) {
 		if (mountpoint != NULL)
@@ -198,8 +205,7 @@ static int create_storage(char* storage_path, char* mountdir){
 					zfs_prop_to_name(
 							 ZFS_PROP_MOUNTPOINT),
 					mountpoint) == 0);
-		if (zfs_mount(pool, NULL, 0) == 0)
-		    ret = zfs_shareall(pool);
+		s_vfs = prepare_storage(pool, name, mountdir);
 		zfs_close(pool);
 	    }
 	} else if (libzfs_errno(g_zfs) == EZFS_INVALIDNAME) {
@@ -214,16 +220,40 @@ errout:
 	return (ret);
 }
 
-#ifdef NOIOCTL
 static void* storage_create_thread(void* obj){
 	(void)obj;
-	create_storage("/home/zvm/zfs.cow", "file");
+	create_storage("/home/zvm/zfs.cow", "file", "/file");
 	return NULL;
 }
-#endif
+
+
+/* static struct fuse_operations zfs_oper = { */
+/* 	.getattr	= zfs_getattr, */
+/* 	.access		= zfs_access, */
+/* 	.readlink	= zfs_readlink, */
+/* 	.readdir	= zfs_readdir, */
+/* 	.mknod		= zfs_mknod, */
+/* 	.mkdir		= zfs_mkdir, */
+/* 	.symlink	= zfs_symlink, */
+/* 	.unlink		= zfs_unlink, */
+/* 	.rmdir		= zfs_rmdir, */
+/* 	.rename		= zfs_rename, */
+/* 	.link		= zfs_link, */
+/* 	.chmod		= zfs_chmod, */
+/* 	.chown		= zfs_chown, */
+/* 	.truncate	= zfs_truncate, */
+/* 	.utimens	= zfs_utimens, */
+/* 	.open		= zfs_open, */
+/* 	.read		= zfs_read, */
+/* 	.write		= zfs_write, */
+/* 	.statfs		= zfs_statfs, */
+/* 	.release	= zfs_release */
+/* }; */
+
 
 int main(int argc, char *argv[])
 {
+	int ret;
 	parse_args(argc, argv);
 
 	if (cf_daemonize) {
@@ -235,29 +265,15 @@ int main(int argc, char *argv[])
 		return 1;
 	}
 
-	if(set_signal_handler(SIGHUP, exit_handler) != 0 ||
-	   set_signal_handler(SIGINT, exit_handler) != 0 ||
-	   set_signal_handler(SIGTERM, exit_handler) != 0 ||
-	   set_signal_handler(SIGPIPE, SIG_IGN) != 0) {
-		do_exit();
-		return 2;
-	}
-
-#ifdef NOIOCTL
 	VERIFY(pthread_create(&storage_create_thread_id, NULL, storage_create_thread, NULL) == 0);
-	VERIFY(pthread_create(&listener_thread_id, NULL, zfsfuse_listener_start, NULL) == 0);
 
 	/* wait for all threads to complete */
-	int rc = pthread_join(storage_create_thread_id, NULL);
-	assert(0 == rc);
+	ret = pthread_join(storage_create_thread_id, NULL);
+	assert(0 == ret);
 
-	rc = pthread_join(listener_thread_id, NULL);
-	assert(0 == rc);
-#else
-	int ret = zfsfuse_listener_start();
-#endif
+	//ret = fuse_main(argc, argv, &zfs_oper, NULL);
 
 	do_exit();
 
-	return 0;
+	return ret;
 }

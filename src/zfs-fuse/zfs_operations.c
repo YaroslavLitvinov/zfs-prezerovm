@@ -44,6 +44,8 @@
 #include "util.h"
 #include "fuse_listener.h"
 
+extern vfs_t*  s_vfs;
+
 #define ZFS_MAGIC 0x2f52f5
 
 static void zfsfuse_getcred(fuse_req_t req, cred_t *cred)
@@ -460,12 +462,12 @@ static void zfsfuse_readdir_helper(fuse_req_t req, fuse_ino_t ino, size_t size, 
 		fuse_reply_err(req, error);
 }
 
-static int zfsfuse_opencreate(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi, int fflags, mode_t createmode, const char *name)
+static int zfsfuse_opencreate(fuse_ino_t ino, struct fuse_file_info *fi, int fflags, mode_t createmode, const char *name)
 {
 	if(name && strlen(name) >= MAXNAMELEN)
 		return ENAMETOOLONG;
 
-	vfs_t *vfs = (vfs_t *) fuse_req_userdata(req);
+	vfs_t *vfs = s_vfs;
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
 	ZFS_ENTER(zfsvfs);
@@ -637,11 +639,11 @@ out:
 	return error;
 }
 
-static void zfsfuse_open_helper(fuse_req_t req, fuse_ino_t ino, struct fuse_file_info *fi)
+static void zfsfuse_open_helper(fuse_ino_t ino, struct fuse_file_info *fi)
 {
 	fuse_ino_t real_ino = ino == 1 ? 3 : ino;
 
-	int error = zfsfuse_opencreate(req, real_ino, fi, fi->flags, 0, NULL);
+	int error = zfsfuse_opencreate(real_ino, fi, fi->flags, 0, NULL);
 	if(error)
 		fuse_reply_err(req, error);
 }

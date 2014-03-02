@@ -44,7 +44,7 @@ typedef struct timespec timestruc_t;
 #define TIME32_MIN INT32_MIN
 
 #define TIMESPEC_OVERFLOW(ts) ((ts)->tv_sec < TIME32_MIN || (ts)->tv_sec > TIME32_MAX)
-
+extern void abort (void);
 static inline hrtime_t gethrtime(void) {
 	struct timespec ts;
 

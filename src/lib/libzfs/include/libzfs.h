@@ -561,6 +561,8 @@ extern int zvol_check_dump_config(char *);
 extern int zpool_enable_datasets(zpool_handle_t *, const char *, int);
 extern int zpool_disable_datasets(zpool_handle_t *, boolean_t);
 
+boolean_t zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen, zprop_source_t *source);
+
 #ifdef	__cplusplus
 }
 #endif

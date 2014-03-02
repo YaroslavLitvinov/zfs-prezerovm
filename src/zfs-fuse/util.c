@@ -103,8 +103,6 @@ int do_init()
 	}
 
 	listener_thread_started = B_TRUE;
-
-	return zfsfuse_listener_init();
 }
 
 void do_exit()
@@ -114,8 +112,6 @@ void do_exit()
 		if(pthread_join(listener_thread, NULL) != 0)
 			cmn_err(CE_WARN, "Error in pthread_join().");
 	}
-
-	zfsfuse_listener_exit();
 
 	if(ioctl_fd != -1)
 		zfsfuse_socket_close(ioctl_fd);
@@ -158,59 +154,6 @@ int do_mount(char *spec, char *dir, int mflag, char *opt)
 
 	fprintf(stderr, "mounting %s\n", dir);
 #endif
-
-	char *fuse_opts;
-	if(asprintf(&fuse_opts, FUSE_OPTIONS, spec) == -1) {
-		VERIFY(do_umount(vfs, B_FALSE) == 0);
-		return ENOMEM;
-	}
-
-	struct fuse_args args = FUSE_ARGS_INIT(0, NULL);
-
-	if(fuse_opt_add_arg(&args, "") == -1 ||
-	   fuse_opt_add_arg(&args, "-o") == -1 ||
-	   fuse_opt_add_arg(&args, fuse_opts) == -1) {
-		fuse_opt_free_args(&args);
-		free(fuse_opts);
-		VERIFY(do_umount(vfs, B_FALSE) == 0);
-		return ENOMEM;
-	}
-	free(fuse_opts);
-
-	int fd = fuse_mount(dir, &args);
-
-	if(fd == -1) {
-		VERIFY(do_umount(vfs, B_FALSE) == 0);
-		return EIO;
-	}
-
-	struct fuse_session *se = fuse_lowlevel_new(&args, &zfs_operations, sizeof(zfs_operations), vfs);
-	fuse_opt_free_args(&args);
-
-	if(se == NULL) {
-		VERIFY(do_umount(vfs, B_FALSE) == 0); /* ZFSFUSE: FIXME?? */
-		close(fd);
-		fuse_unmount(dir);
-		return EIO;
-	}
-
-	struct fuse_chan *ch = fuse_kern_chan_new(fd);
-	if(ch == NULL) {
-		fuse_session_destroy(se);
-		close(fd);
-		fuse_unmount(dir);
-		return EIO;
-	}
-
-	fuse_session_add_chan(se, ch);
-
-	if(zfsfuse_newfs(dir, ch) != 0) {
-		fuse_session_destroy(se);
-		close(fd);
-		fuse_unmount(dir);
-		return EIO;
-	}
-
 	return 0;
 }
 

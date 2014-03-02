@@ -269,7 +269,7 @@ zfs_is_mounted(zfs_handle_t *zhp, char **where)
  * Returns true if the given dataset is mountable, false otherwise.  Returns the
  * mountpoint in 'buf'.
  */
-static boolean_t
+boolean_t
 zfs_is_mountable(zfs_handle_t *zhp, char *buf, size_t buflen,
     zprop_source_t *source)
 {
