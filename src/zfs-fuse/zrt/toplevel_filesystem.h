@@ -21,15 +21,10 @@
 
 #include "mounts_interface.h" //struct MountsPublicInterface
 
-#ifdef __native_client__
 #include "zrt_defines.h" //CONSTRUCT_L
-#else
-/*execute constructor function*/
-#define CONSTRUCT_L(function_return_object_p) function_return_object_p
-#endif 
 
 /*name of constructor*/
-#define INMEMORY_FILESYSTEM inmemory_filesystem_construct 
+#define TOPLEVEL_FILESYSTEM toplevel_filesystem_construct
 
 #ifdef __cplusplus
 extern "C" {
@@ -37,10 +32,11 @@ extern "C" {
     
     struct HandleAllocator;
     struct OpenFilesPool;
-    
+
     struct MountsPublicInterface* 
-    inmemory_filesystem_construct( struct HandleAllocator* handle_allocator,
-				   struct OpenFilesPool* open_files_pool);
+    toplevel_filesystem_construct( struct HandleAllocator* handle_allocator,
+				   struct OpenFilesPool* open_files_pool,
+				   struct LowLevelFilesystemPublicInterface* lowlevelfs);
     
 #ifdef __cplusplus
 }

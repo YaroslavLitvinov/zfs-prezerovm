@@ -21,6 +21,8 @@
 #include "zfs_filesystem.h"
 #include "open_file_description.h"
 #include "lowlevel_filesystem.h"
+#include "dirent_engine.h"
+
 #include <sys/mode.h> //VTTOIF
 #include <sys/zfs_vfsops.h> //zfsvfs_t
 #include <sys/zfs_znode.h> //ZFS_ENTER
@@ -317,8 +319,6 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 	    struct dirent64 dirent;
 	} entry;
 
-	struct stat fstat = { 0 };
-
 	iovec_t iovec;
 	uio_t uio;
 	uio.uio_iov = &iovec;
@@ -348,19 +348,16 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 	    if(iovec.iov_base == entry.buf)
 		break;
 
-	    fstat.st_ino = entry.dirent.d_ino;
-	    fstat.st_mode = 0;
-
-	    int dsize = this_->toplevelfs
-		->dirent_size(strlen(entry.dirent.d_name));
-
-	    if(dsize > outbuf_resid)
+	    size_t dsize = zfs->public_.dirent_engine
+		->add_dirent_into_buf( buf + outbuf_off, 
+				       count - outbuf_off, 
+				       entry.dirent.d_ino, 
+				       0, /*mode*/
+				       entry.dirent.d_off,
+				       entry.dirent.d_name );
+	    if ( dsize == -1 ){
 		break;
-
-	    this_->toplevelfs->add_dirent(buf + outbuf_off, 
-					  entry.dirent.d_name,
-					  &fstat, 
-					  entry.dirent.d_off);
+	    }
 
 	    outbuf_off += dsize;
 	    outbuf_resid -= dsize;
@@ -373,7 +370,7 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 	return error;
 }
 
-static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int fd){
+static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	vfs_t *vfs = zfs->vfs;
@@ -396,12 +393,8 @@ static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inod
 
 	cred_t *cred = NULL;
 
-	/////////////////////////////////////////////
-	//flags - get from toplevelfs
-	VOP_CLOSE(vp, 
-		  this_->toplevelfs->ofd(fd, inode)->flags, 
-		  1, (offset_t) 0, cred, NULL);
-	//////////////////////////////////////////////
+	VOP_CLOSE(vp, flags, 1, (offset_t) 0, cred, NULL);
+
 	VERIFY(error == 0);
 
 	VN_RELE(vp);
@@ -813,9 +806,9 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
 
 struct LowLevelFilesystemPublicInterface* 
 zfs_filesystem_construct (vfs_t *vfs, 
-			  struct TopLevelFilesystemObserverInterface* toplevelfs){
+			  struct DirentEnginePublicInterface* dirent_engine){
 	struct ZfsFilesystem* this_ = malloc(sizeof(struct ZfsFilesystem));
 	this_->public_ = s_zfs_filesystem_interface;
-	this_->public_.toplevelfs = toplevelfs;
+	this_->public_.dirent_engine = dirent_engine;
 	return &this_->public_;
 }

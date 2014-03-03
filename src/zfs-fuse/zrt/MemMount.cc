@@ -4,6 +4,24 @@
  * found in the LICENSE file.
  */
 
+/*
+ *
+ * Copyright (c) 2014, LiteStack, Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+
 #include <stdio.h>
 #include <stdarg.h>
 #include <limits.h>
@@ -12,6 +30,7 @@
 extern "C" {
 #include "zrtlog.h"
 #include "zrt_helper_macros.h"
+#include "dirent_engine.h"
 }
 #include "MemMount.h"
 
@@ -21,74 +40,6 @@ extern "C" {
 	    slots_.At(mnode_child_p->parent());		\
 	assert(mnode_parent_p);				\
     }
-
-
-static int d_type_from_mode(unsigned int mode){
-    switch (mode & S_IFMT) {
-    case S_IFBLK:  return DT_BLK;
-    case S_IFCHR:  return DT_CHR;
-    case S_IFDIR:  return DT_DIR;
-    case S_IFIFO:  return DT_FIFO;
-    case S_IFLNK:  return DT_LNK;
-    case S_IFREG:  return DT_REG;
-    case S_IFSOCK: return DT_SOCK;
-    default:       return DT_UNKNOWN;
-    }
-}
-
-/*low level function, copy dirent args into buf*/
-static size_t put_dirent_into_buf( char *buf, 
-				   int buf_size, 
-				   unsigned long d_ino, 
-				   unsigned long d_off,
-				   unsigned char d_type,
-				   const char *d_name, 
-				   int namelength ){
-#define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
-    DIRENT *dirent = (DIRENT *) buf;
-    ZRT_LOG(L_EXTRA, "dirent offset: ino_off=%u, off_off=%u, reclen_off=%u, name_off=%u",
-            offsetof( DIRENT, d_ino ),
-            offsetof( DIRENT, d_off ),
-            offsetof( DIRENT, d_reclen ),
-            offsetof( DIRENT, d_name ) );
-
-    /*dirent structure not have constant size it's can be vary depends on name length.       
-      also dirent size should be multiple of the 8 bytes, so adjust it*/
-    uint32_t adjusted_size = 
-	offsetof(DIRENT, d_name) + namelength +1 /* NUL termination */;
-    adjusted_size = ROUND_UP( adjusted_size, 8 );
-
-    /*if size of the current dirent data is less than available buffer size
-     then fill it by data*/
-    if ( adjusted_size < buf_size ){
-        dirent->d_reclen = adjusted_size;
-        dirent->d_ino = d_ino;
-	dirent->d_type = d_type;
-        if ( d_off == 0x7fffffff )
-            dirent->d_off = 0x7fffffff;
-        else
-            dirent->d_off = d_off+dirent->d_reclen;
-
-        memcpy( dirent->d_name, d_name, namelength );
-        ((char*)dirent->d_name)[namelength] = '\0';
-
-        ZRT_LOG(L_SHORT, "dirent: name=%s, ino=%u, d_off=%u, d_reclen=%d, d_type=%d",
-                d_name, 
-		(unsigned int)d_ino, 
-		(unsigned int)d_off, 
-		dirent->d_reclen, 
-		d_type );
-        return dirent->d_reclen;
-    }
-    /*buffer is not enough to save current dirent structure*/
-    else{
-        ZRT_LOG(L_EXTRA, "no enough buffer, "
-		"data_size=%d, buf_size=%d", 
-		adjusted_size, buf_size);
-        return -1; /*no enough buffer size*/
-    }
-}
-
 
 /*MemMount implementation*/
 
@@ -578,13 +529,17 @@ int MemMount::Getdents(ino_t slot, off_t offset, void *buf, unsigned int buf_siz
 	if ( node->UnlinkisTrying() ) continue;
 	node->stat(&st);
 	ZRT_LOG(L_SHORT, "getdents entity: %s", node->name().c_str());
+	struct DirentEnginePublicInterface* dirent_engine = INSTANCE_L(DIRENT_ENGINE)();
+
 	/*format in buf dirent structure, of variable size, and save current file data;
 	  original MemMount implementation was used dirent as having constant size */
-	bytes_read += 
-	    put_dirent_into_buf( ((char*)buf)+bytes_read, buf_size-bytes_read, 
-				 node->slot(), 0, 
-				 d_type_from_mode(st.st_mode),
-				 node->name().c_str(), node->name().length() );
+	bytes_read += dirent_engine
+	    ->add_dirent_into_buf( ((char*)buf)+bytes_read, 
+				   buf_size-bytes_read, 
+				   node->slot(), 
+				   0, 
+				   st.st_mode, 
+				   node->name().c_str() );
         ++pos;
     }
     return bytes_read;

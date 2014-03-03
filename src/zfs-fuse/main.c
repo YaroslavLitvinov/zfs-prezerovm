@@ -65,8 +65,13 @@
 
 #include <libzfs.h>
 
-#include "new_zpool_util.h"
 #include "zfs_comutil.h"
+#include "zfs_filesystem.h"
+#include "toplevel_filesystem.h"
+#include "open_file_description.h"
+#include "new_zpool_util.h"
+#include "handle_allocator.h"
+#include "dirent_engine.h"
 
 pthread_t storage_create_thread_id;
 //pthread_t listener_thread_id;
@@ -226,6 +231,22 @@ static void* storage_create_thread(void* obj){
 	return NULL;
 }
 
+static struct MountsPublicInterface* create_filesystem_interface(){
+    struct DirentEnginePublicInterface* dirent_engine = 
+	INSTANCE_L(DIRENT_ENGINE)();
+
+    assert(s_vfs);
+
+    struct LowLevelFilesystemPublicInterface* zfs_lowlevel_fs = 
+	CONSTRUCT_L(ZFS_FILESYSTEM)( s_vfs, dirent_engine );
+
+    struct MountsPublicInterface* toplevel_fs = 
+	CONSTRUCT_L(TOPLEVEL_FILESYSTEM)( get_handle_allocator(),
+					  get_open_files_pool(),
+					  zfs_lowlevel_fs);
+    return toplevel_fs;
+}
+
 
 /* static struct fuse_operations zfs_oper = { */
 /* 	.getattr	= zfs_getattr, */
@@ -270,6 +291,11 @@ int main(int argc, char *argv[])
 	/* wait for all threads to complete */
 	ret = pthread_join(storage_create_thread_id, NULL);
 	assert(0 == ret);
+
+	struct MountsPublicInterface* fs = create_filesystem_interface();
+	assert(fs);
+	
+
 
 	//ret = fuse_main(argc, argv, &zfs_oper, NULL);
 

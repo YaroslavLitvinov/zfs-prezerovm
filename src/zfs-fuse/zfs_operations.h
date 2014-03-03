@@ -28,6 +28,6 @@
 
 #include "fuse.h"
 
-extern struct fuse_lowlevel_ops zfs_operations;
+extern struct fuse_operations zfs_operations;
 
 #endif

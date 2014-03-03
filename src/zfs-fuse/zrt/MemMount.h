@@ -42,8 +42,6 @@ OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.*/
 #include "SlotAllocator.h"
 #include "MemNode.h"
 
-#define DIRENT struct dirent
-
 // MemMount is a storage mount representing local memory.  The MemMount uses
 // the MemNode to represent an inode.
 class MemMount {

@@ -31,12 +31,15 @@ extern "C" {
 #ifdef __native_client__
 #include "nacl-mounts/util/Path.h"
 #endif //__native_client__
+
 #include "lowlevel_filesystem.h"
 #include "toplevel_filesystem.h"
 #include "mounts_interface.h"
+
 extern "C" {
 #include "handle_allocator.h" //struct HandleAllocator, struct HandleItem
 #include "open_file_description.h" //struct OpenFilesPool, struct OpenFileDescription
+#include "dirent_engine.h"
     //#include "fstab_observer.h" /*lazy mount*/
     //#include "fcntl_implem.h"
     //#include "enum_strings.h"
@@ -362,11 +365,12 @@ static int toplevel_close(struct MountsPublicInterface* this_, int fd){
     int ret;
     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
     const struct HandleItem* entry;
+    const struct OpenFileDescription* ofd = fs->handle_allocator->ofd(fd);
 
     GET_DESCRIPTOR_ENTRY_CHECK(fs, entry);
 
     if ( fs->lowlevelfs->close &&
-	 (ret=fs->lowlevelfs->close( fs->lowlevelfs, entry->inode)) != -1 ){
+	 (ret=fs->lowlevelfs->close( fs->lowlevelfs, entry->inode, ofd->flags)) != -1 ){
     }
 
     fs->mem_mount_cpp->Unref(entry->inode); /*decrement use count*/
@@ -774,7 +778,7 @@ static struct MountsPublicInterface KTopLevelMountWraper = {
 };
 
 struct MountsPublicInterface* 
-TopLevel_filesystem_construct( struct HandleAllocator* handle_allocator,
+toplevel_filesystem_construct( struct HandleAllocator* handle_allocator,
 			       struct OpenFilesPool* open_files_pool,
 			       struct LowLevelFilesystemPublicInterface* lowlevelfs){
     /*use malloc and not new, because it's external c object*/
@@ -789,4 +793,5 @@ TopLevel_filesystem_construct( struct HandleAllocator* handle_allocator,
     this_->mem_mount_cpp = new MemMount;
     return (struct MountsPublicInterface*)this_;
 }
+
 

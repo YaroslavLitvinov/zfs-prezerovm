@@ -22,23 +22,18 @@
 
 #include <sys/vfs.h>
 
-#ifdef __native_client__
 #include "zrt_defines.h" //CONSTRUCT_L
-#else
-/*execute constructor function*/
-#define CONSTRUCT_L(function_return_object_p) function_return_object_p
-#endif 
 
 /*name of constructor*/
 #define ZFS_FILESYSTEM zfs_filesystem_construct 
 
-struct TopLevelFilesystemObserverInterface;
+struct DirentEnginePublicInterface;
 
 
 /*@return result pointer can be casted to struct BitArray*/
 struct LowLevelFilesystemPublicInterface* 
 zfs_filesystem_construct(vfs_t *vfs,
-			 struct TopLevelFilesystemObserverInterface* toplevelfs);
+			 struct DirentEnginePublicInterface* dirent_engine);
 
 
 

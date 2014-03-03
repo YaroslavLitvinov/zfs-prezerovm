@@ -25,15 +25,6 @@
 
 struct stat;
 
-struct TopLevelFilesystemObserverInterface{
-    size_t (*dirent_size)(size_t namelen);
-    char * (*add_dirent)(char *buf, 
-			 const char *name,
-			 const struct stat *stbuf, 
-			 off_t off);
-    const struct OpenFileDescription* (*ofd)(int fd, 
-					     ino_t inode);
-};
 
 struct LowLevelFilesystemPublicInterface{
     int (*chown)(struct LowLevelFilesystemPublicInterface* this_, 
@@ -54,7 +45,7 @@ struct LowLevelFilesystemPublicInterface{
 		    ino_t inode, void *buf, unsigned int count, off_t offset);
     int (*fsync)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t inode);
-    int (*close)(struct LowLevelFilesystemPublicInterface* this_, ino_t inode);
+    int (*close)(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags);
     int (*open)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t parent_inode, const char* name, int oflag, uint32_t mode);
     int (*unlink)(struct LowLevelFilesystemPublicInterface* this_, 
@@ -66,7 +57,7 @@ struct LowLevelFilesystemPublicInterface{
 		      ino_t new_parent, const char *newname);
     int (*ftruncate_size)(struct LowLevelFilesystemPublicInterface* this_, 
 			  ino_t inode, off_t length);
-    struct TopLevelFilesystemObserverInterface* toplevelfs;
+    struct DirentEnginePublicInterface* dirent_engine;
 };
 
 
