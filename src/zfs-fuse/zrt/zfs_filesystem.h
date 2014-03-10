@@ -29,8 +29,6 @@
 
 struct DirentEnginePublicInterface;
 
-
-/*@return result pointer can be casted to struct BitArray*/
 struct LowLevelFilesystemPublicInterface* 
 zfs_filesystem_construct(vfs_t *vfs,
 			 struct DirentEnginePublicInterface* dirent_engine);

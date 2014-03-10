@@ -1,7 +1,33 @@
 /*
+ * CDDL HEADER START
+ *
+ * The contents of this file are subject to the terms of the
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
+ *
+ * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+ * or http://www.opensolaris.org/os/licensing.
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL HEADER in each
+ * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+ * If applicable, add the following below this CDDL HEADER, with the
+ * fields enclosed by brackets "[]" replaced with your own identifying
+ * information: Portions Copyright [yyyy] [name of copyright owner]
+ *
+ * CDDL HEADER END
+ */
+/*
+ * Copyright 2006 Ricardo Correia.
+ * Portions Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
+ * Use is subject to license terms.
+ */
+
+/*
  * ZFS filesystem interface implementation
  *
- * Copyright (c) 2012-2013, LiteStack, Inc.
+ * Copyright (c) 2014, LiteStack, Inc.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this_ file except in compliance with the License.
@@ -67,6 +93,34 @@ static int internal_stat(vnode_t *vp, struct stat *stbuf)
 }
 
 
+static int zfs_statvfs(struct LowLevelFilesystemPublicInterface* this_, struct statvfs *stat)
+{
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+	vfs_t *vfs = zfs->vfs;
+
+	struct statvfs64 zfs_stat;
+
+	int ret = VFS_STATVFS(vfs, &zfs_stat);
+	if(ret != 0) {
+		return -1;
+	}
+
+	stat.f_bsize = zfs_stat.f_bsize;
+	stat.f_frsize = zfs_stat.f_frsize;
+	stat.f_blocks = zfs_stat.f_blocks;
+	stat.f_bfree = zfs_stat.f_bfree;
+	stat.f_bavail = zfs_stat.f_bavail;
+	stat.f_files = zfs_stat.f_files;
+	stat.f_ffree = zfs_stat.f_ffree;
+	stat.f_favail = zfs_stat.f_favail;
+	stat.f_fsid = zfs_stat.f_fsid;
+	stat.f_flag = zfs_stat.f_flag;
+	stat.f_namemax = zfs_stat.f_namemax;
+	
+	return 0;
+}
+
+
 static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_, 
 		    ino_t inode, struct stat *buf){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
@@ -96,8 +150,71 @@ static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_,
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 	return error;
-
 }
+
+static int zfs_mknod(struct LowLevelFilesystemPublicInterface* this_, 
+		     ino_t parent_inode, const char *name, mode_t mode, dev_t rdev)
+{
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	cred_t * cred = NULL;
+
+	vattr_t vattr;
+	vattr.va_type = IFTOVT(mode);
+	vattr.va_mode = mode & PERMMASK;
+	vattr.va_mask = AT_TYPE | AT_MODE;
+
+	if(mode & (S_IFCHR | S_IFBLK)) {
+		vattr.va_rdev = rdev;
+		vattr.va_mask |= AT_RDEV;
+	}
+
+	vnode_t *vp = NULL;
+
+	/* FIXME: check filesystem boundaries */
+	error = VOP_CREATE(dvp, (char *) name, &vattr, EXCL, 0, &vp, cred, 0, NULL, NULL);
+
+	VN_RELE(dvp);
+
+	if(error)
+		goto out;
+
+	ASSERT(vp != NULL);
+
+	struct stat st;
+	error = zfsfuse_stat(vp, &st, cred);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+
 static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_, 
 		     ino_t parent_inode, const char* name, uint32_t mode){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
@@ -554,6 +671,115 @@ static int zfs_open(struct LowLevelFilesystemPublicInterface* this_,
 	return error;
 
 }
+
+static ssize_t zfs_readlink(struct LowLevelFilesystemPublicInterface* this_, 
+			    ino_t inode,
+			    char *buf, size_t bufsize)
+{
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+	
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, inode, &znode, B_FALSE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	iovec_t iovec;
+	uio_t uio;
+	uio.uio_iov = &iovec;
+	uio.uio_iovcnt = 1;
+	uio.uio_segflg = UIO_SYSSPACE;
+	uio.uio_fmode = 0;
+	uio.uio_llimit = RLIM64_INFINITY;
+	iovec.iov_base = buf;
+	iovec.iov_len = bufsize - 1;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = 0;
+
+	cred_t * cred = NULL;
+	error = VOP_READLINK(vp, &uio, cred, NULL);
+
+	VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+
+static int zfs_symlink(struct LowLevelFilesystemPublicInterface* this_, 
+		       const char *link, ino_t parent_inode, const char *name)
+{
+	if(strlen(name) >= MAXNAMELEN)
+		return ENAMETOOLONG;
+
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	cred_t *cred = NULL;
+
+	vattr_t vattr;
+	vattr.va_type = VLNK;
+	vattr.va_mode = 0777;
+	vattr.va_mask = AT_TYPE | AT_MODE;
+
+	error = VOP_SYMLINK(dvp, (char *) name, &vattr, (char *) link, cred, NULL, 0);
+
+	vnode_t *vp = NULL;
+
+	if(error)
+		goto out;
+
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, cred, NULL, NULL, NULL);
+	if(error)
+		goto out;
+
+	ASSERT(vp != NULL);
+
+	struct stat st;
+	error = zfsfuse_stat(vp, &st, &cred);
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	VN_RELE(dvp);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+
 static int zfs_unlink(struct LowLevelFilesystemPublicInterface* this_, 
 		      ino_t parent_inode, const char* name){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
@@ -785,9 +1011,13 @@ static int zfs_ftruncate_size(struct LowLevelFilesystemPublicInterface* this_,
 
 
 static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
+    zfs_readlink,
+    zfs_symlink,
     NULL, //chown
     NULL, //chmod
+    zfs_statvfs,
     zfs_stat,
+    zfs_mknod,
     zfs_mkdir,
     zfs_rmdir,
     zfs_pread,

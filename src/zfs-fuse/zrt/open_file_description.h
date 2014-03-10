@@ -22,6 +22,12 @@
 #include <stdio.h>
 #include <sys/types.h>
 
+#include "zrt_defines.h" //INSTANCE_L
+
+/*name of constructor*/
+#define OPEN_FILES_POOL get_open_files_pool
+
+
 struct OpenFileDescription{
     off_t channel_sequential_offset; /*sequential read, sequential write*/
     off_t offset; /*used by read, write; also for channels random read, random write*/

@@ -27,12 +27,20 @@ struct stat;
 
 
 struct LowLevelFilesystemPublicInterface{
+    ssize_t (*readlink)(struct LowLevelFilesystemPublicInterface* this_,
+			ino_t inode, char *buf, size_t bufsize);
+    int (*symlink)(struct LowLevelFilesystemPublicInterface* this_, 
+		   const char *link, ino_t parent_inode, const char *name);
     int (*chown)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t inode, uid_t owner, gid_t group);
     int (*chmod)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t inode, uint32_t mode);
+    int (*statvfs)(struct LowLevelFilesystemPublicInterface* this_, 
+		   struct statvfs *buf);
     int (*stat)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t inode, struct stat *buf);
+    int (*mknod)(struct LowLevelFilesystemPublicInterface* this_,
+		 ino_t parent_inode, const char *name, mode_t mode, dev_t rdev);
     int (*mkdir)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t parent_inode, const char* name, uint32_t mode);
     int (*rmdir)(struct LowLevelFilesystemPublicInterface* this_, 

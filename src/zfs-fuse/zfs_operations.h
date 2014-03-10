@@ -28,6 +28,14 @@
 
 #include "fuse.h"
 
+#include "zrt_defines.h" //CONSTRUCT_L
+
+/*name of constructor*/
+#define FUSE_OPERATIONS fuse_operations_construct 
+
 extern struct fuse_operations zfs_operations;
+
+struct fuse_operations* fuse_operations_construct(vfs_t *vfs);
+
 
 #endif

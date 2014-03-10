@@ -43,59 +43,76 @@
 
 #include "util.h"
 #include "fuse_listener.h"
+#include "dirent_engine.h"
 
-int(* 	getattr )(const char *, struct stat *){
+
+static struct MountsPublicInterface* s_toplevelfs;
+
+/*the same as stat*/
+static int getattr(const char *path, struct stat *st){
+    return s_toplevelfs->stat(s_toplevelfs, path, st);
 }
  
-int(* 	readlink )(const char *, char *, size_t){
+static int readlink(const char *path, char *buf, size_t bufsize){
+    ssize_t ret = s_toplevelfs->readlink(s_toplevelfs, path, buf, bufsize);
+    if ( ret > 0 ) return 0; //fuse: The return value should be 0 for success.
+    else return ret;
 }
 
-int(* 	mknod )(const char *, mode_t, dev_t){
+static int mknod(const char *path, mode_t mode, dev_t dev){
+    return s_toplevelfs->mknod(s_toplevelfs, path, mode, dev);
 }
 
-int(* 	mkdir )(const char *, mode_t){
+static int mkdir(const char *path, mode_t mode){
+    return s_toplevelfs->mkdir(s_toplevelfs, path, mode);
 }
 
-int(* 	unlink )(const char *){
+static int unlink(const char *path){
+    return s_toplevelfs->unlink(s_toplevelfs, path);
 }
 
-int(* 	rmdir )(const char *){
+static int rmdir(const char *path){
+    return s_toplevelfs->rmdir(s_toplevelfs, path);
 }
 
-int(* 	symlink )(const char *, const char *){
+static int symlink(const char *oldpath, const char *newpath){
+    return s_toplevelfs->symlinks(s_toplevelfs, oldpath, newpath);
 }
  
-int(* 	rename )(const char *, const char *){
+static int rename(const char *oldpath, const char *newpath){
+    return s_toplevelfs->rename(s_toplevelfs, oldpath, newpath);
 }
  
-int(* 	link )(const char *, const char *){
+static int link(const char *oldpath, const char *newpath){
+    return s_toplevelfs->link(s_toplevelfs, oldpath, newpath);
 }
 	
-int(* 	chmod )(const char *, mode_t){
+static int chmod(const char *path, mode_t mode){
+    return s_toplevelfs->chmod(s_toplevelfs, path, mode);
 }
  
-int(* 	chown )(const char *, uid_t, gid_t){
+static int chown(const char *path, uid_t owner, gid_t group){
+    return s_toplevelfs->chown(s_toplevelfs, path, owner, group);
 }
  
-int(* 	truncate )(const char *, off_t){
+static int open(const char *path, struct fuse_file_info *fi){
+    int fd = s_toplevelfs->open(s_toplevelfs, path, fi->flags, 0);
+    if ( fd < 0 )
+	return fd;
+    fi->fh = fd;
+    return 0;
 }
  
-int(* 	open )(const char *, struct fuse_file_info *){
+static int read(const char *path, char *buf, size_t bufsize, off_t offset, struct fuse_file_info *fi){
+    return s_toplevelfs->pread(s_toplevelfs, path, buf, bufsize, offset);
 }
  
-int(* 	read )(const char *, char *, size_t, off_t, struct fuse_file_info *){
+static int write(const char *path, const char *buf, size_t bufsize, off_t offset, struct fuse_file_info *){
+    return s_toplevelfs->pwrite(s_toplevelfs, path, buf, bufsize, offset);
 }
  
-int(* 	write )(const char *, const char *, size_t, off_t, struct fuse_file_info *){
-}
- 
-int(* 	statfs )(const char *, struct statvfs *){
-}
- 
-int(* 	flush )(const char *, struct fuse_file_info *){
-}
- 
-int(* 	release )(const char *, struct fuse_file_info *){
+static int statvfs(const char *path, struct statvfs *buf){
+    return s_toplevelfs->statvfs(s_toplevelfs, path, buf);
 }
  
 int(* 	fsync )(const char *, int, struct fuse_file_info *){
@@ -117,12 +134,6 @@ int(* 	opendir )(const char *, struct fuse_file_info *){
 }
  
 int(* 	readdir )(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_info *){
-}
- 
-int(* 	releasedir )(const char *, struct fuse_file_info *){
-}
- 
-int(* 	fsyncdir )(const char *, int, struct fuse_file_info *){
 }
  
 void *(* 	init )(struct fuse_conn_info *conn){
@@ -173,12 +184,12 @@ int(* 	fallocate )(const char *, int, off_t, off_t, struct fuse_file_info *){
 
 struct fuse_operations s_zfs_operation = {
     getattr,  //ok stat
-    //readlink, //ZFS-FUSE not support it
-    //mknod,    //ZFS-FUSE not support it
+    readlink, //added
+    mknod,    //added
     mkdir,    //ok
     unlink,   //ok
     rmdir,    //ok
-    symlink,  //ok needed
+    symlink,  //added
     rename,   //ok
     link,     //link
     chmod,    //ZFS-FUSE not support it
@@ -187,9 +198,9 @@ struct fuse_operations s_zfs_operation = {
     open,     //ok
     read,     //ok
     write,    //ok
-    //statfs,   //not needed
+    statvfs,   //not needed
     //flush,    //not needed or NULL
-    release,  //ZFS-FUSE has it, ZRT not
+    //release,  //FUSE function
     fsync,    //ZFS-FUSE has it, ZRT not
     //setxattr, //not needed
     //getxattr, //not needed
@@ -197,7 +208,7 @@ struct fuse_operations s_zfs_operation = {
     //removexattr,//not needed
     opendir,  //ZFS-FUSE has, ZRT not
     readdir,  //ZFS-FUSE has, ZRT has not
-    releasedir,//ZFS-FUSE has it, ZRT has not
+    //releasedir,//FUSE function
     fsyncdir, //ZRT, ZFS-FUSE has not
     init,     //ZRT has not
     destroy,  //ZFS-FUSE has, ZRT has not, not needed
@@ -209,12 +220,32 @@ struct fuse_operations s_zfs_operation = {
     utimens,  //ZRT has not
     bmap,     //ZRT has not
     ioctl,    //ZRT has not
-    poll,     //ZRT has not
-    write_buf,//ZRT has not
-    read_buf, //ZRT has not
+    //poll,     //ZRT has not, not needed
+    //write_buf,//ZRT has not, not needed
+    //read_buf, //ZRT has not, not needed
     flock,    //ZRT has not
     fallocate //ZRT has not
 };
+
+
+struct fuse_operations* fuse_operations_construct(vfs_t *vfs){
+    /*create file descriptor manager, and manager for opened files*/
+    struct HandleAllocator *handle_allocator = INSTANCE_L(HANDLE_ALLOCATOR)();
+    struct OpenFilesPool *open_files_pool = INSTANCE_L(OPEN_FILES_POOL)();
+    /*create filesystem that driven by inodes, this fs is used by toplevelfs,
+     and only toplevelfs must provide inodes*/
+    struct LowLevelFilesystemPublicInterface *lowlevelfs 
+	= CONSTRUCT_L(ZFS_FILESYSTEM)(vfs, 
+				      INSTANCE_L(DIRENT_ENGINE)() );
+    /*create filesystem implementation of much top level, which can
+     accept paths, this interface purely can be used inside of ZRT*/
+    s_toplevelfs = CONSTRUCT_L(TOPLEVEL_FILESYSTEM)( handle_allocator,
+						     open_files_pool,
+						     lowlevelfs);
+    /*just get static array of functions, it is expected that them will be use
+     s_toplevelfs object to provide implementation*/
+    return &s_zfs_operation;
+}
 
 struct fuse_operations* get_zfs_operations(){
     return &s_zfs_operation;

@@ -25,6 +25,11 @@
 
 #define MAX_HANDLES_COUNT 1000
 
+#include "zrt_defines.h" //INSTANCE_L
+
+/*name of constructor*/
+#define HANDLE_ALLOCATOR get_handle_allocator 
+
 struct MountsPublicInterface;
 
 struct HandleItem{

@@ -91,15 +91,117 @@ static int is_dir( struct LowLevelFilesystemPublicInterface* this_, ino_t inode 
 
 /*wraper implementation*/
 
+static ssize_t toplevel_readlink(struct MountsPublicInterface* this_,
+				 const char *path, char *buf, size_t bufsize){
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *node;
+    int ret = -1;
+
+    NAME_LENGTH_CHECK(path);
+
+    node = fs->mem_mount_cpp->GetMemNode(path);
+
+    if ( !node ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    if ( fs->lowlevelfs->readlink
+	 && (ret=fs->lowlevelfs->readlink(fs->lowlevelfs, node->slot(), buf, bufsize)) != -1 ){
+	;
+    }
+    
+    return ret;
+}
+
+static int toplevel_symlink(struct MountsPublicInterface* this_,
+			    const char *oldpath, const char *newpath){
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *newnode_parent= fs->mem_mount_cpp->GetParentMemNode(newpath);
+    MemNode *newnode = fs->mem_mount_cpp->GetMemNode(newpath);
+
+    if (oldpath == NULL && !strlen(oldpath)) {
+	SET_ERRNO(ENOENT);
+        return -1;
+    }
+    if (newnode != NULL) {
+	SET_ERRNO(EEXIST);
+        return -1;
+    }
+
+    const char* name = name_from_path( newpath);
+    if ( name == NULL ){
+	SET_ERRNO(ENOTDIR);
+	return -1;
+    }
+    if ( fs->lowlevelfs->symlink &&
+	 (ret=fs->lowlevelfs->symlink( fs->lowlevelfs, oldpath, newnode_parent->slot(), name )) == 0 ){
+	;
+    }
+    return ret;
+}
+
+
+
 static int toplevel_chown(struct MountsPublicInterface* this_, const char* path, uid_t owner, gid_t group){
-    SET_ERRNO(ENOSYS);
-    return -1;
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *node;
+    int ret = -1;
+
+    NAME_LENGTH_CHECK(path);
+
+    node = fs->mem_mount_cpp->GetMemNode(path);
+
+    if ( !node ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    if ( fs->lowlevelfs->chown
+	 && (ret=fs->lowlevelfs->chown(fs->lowlevelfs, node->slot(), owner, group)) != -1 ){
+	;
+    }
+    
+    return ret;
 }
 
 static int toplevel_chmod(struct MountsPublicInterface* this_, const char* path, uint32_t mode){
-    SET_ERRNO(ENOSYS);
-    return -1;
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *node;
+    int ret = -1;
+
+    NAME_LENGTH_CHECK(path);
+
+    node = fs->mem_mount_cpp->GetMemNode(path);
+
+    if ( !node ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    if ( fs->lowlevelfs->chmod
+	 && (ret=fs->lowlevelfs->chmod(fs->lowlevelfs, node->slot(), mode)) != -1 ){
+	;
+    }
+    
+    return ret;
 }
+
+static int toplevel_statvfs(struct MountsPublicInterface* this_, const char* path, struct statvfs *buf){
+    /*currently path is not used, but it will be used to select
+     appropriate to path a lowlevel fs and to get this call for
+     particular fs.*/
+
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+
+    if ( fs->lowlevelfs->statvfs
+	 && (ret=fs->lowlevelfs->statvfs(fs->lowlevelfs, buf)) != -1){
+	;
+    }
+    
+    return ret;
+}
+
 
 static int toplevel_stat(struct MountsPublicInterface* this_, const char* path, struct stat *buf){
     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
@@ -122,6 +224,29 @@ static int toplevel_stat(struct MountsPublicInterface* this_, const char* path, 
 	 *but internally all nodes have separeted inodes*/
 	/*patch inode if it has hardlinks*/
 	buf->st_ino = (ino_t)node->hardinode();
+    }
+    
+    return ret;
+}
+
+static int toplevel_mknod(struct MountsPublicInterface* this_, 
+			  const char* path, mode_t mode, dev_t dev){
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *node;
+    int ret = -1;
+
+    NAME_LENGTH_CHECK(path);
+
+    node = fs->mem_mount_cpp->GetMemNode(path);
+
+    if ( !node ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    if ( fs->lowlevelfs->mknod
+	 && (ret=fs->lowlevelfs->mknod(fs->lowlevelfs, node->slot(), mode, dev)) != -1 ){
+	;
     }
     
     return ret;
@@ -747,9 +872,13 @@ static int toplevel_link(struct MountsPublicInterface* this_, const char* oldpat
 }
 
 static struct MountsPublicInterface KTopLevelMountWraper = {
+    toplevel_readlink,
+    toplevel_symlink,
     toplevel_chown,
     toplevel_chmod,
+    toplevel_statvfs,
     toplevel_stat,
+    toplevel_mknod,
     toplevel_mkdir,
     toplevel_rmdir,
     toplevel_read,
