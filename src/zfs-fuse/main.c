@@ -72,6 +72,7 @@
 #include "new_zpool_util.h"
 #include "handle_allocator.h"
 #include "dirent_engine.h"
+#include "zfs_operations.h"
 
 pthread_t storage_create_thread_id;
 //pthread_t listener_thread_id;
@@ -231,55 +232,14 @@ static void* storage_create_thread(void* obj){
 	return NULL;
 }
 
-static struct MountsPublicInterface* create_filesystem_interface(){
-    struct DirentEnginePublicInterface* dirent_engine = 
-	INSTANCE_L(DIRENT_ENGINE)();
-
-    assert(s_vfs);
-
-    struct LowLevelFilesystemPublicInterface* zfs_lowlevel_fs = 
-	CONSTRUCT_L(ZFS_FILESYSTEM)( s_vfs, dirent_engine );
-
-    struct MountsPublicInterface* toplevel_fs = 
-	CONSTRUCT_L(TOPLEVEL_FILESYSTEM)( get_handle_allocator(),
-					  get_open_files_pool(),
-					  zfs_lowlevel_fs);
-    return toplevel_fs;
-}
-
-
-/* static struct fuse_operations zfs_oper = { */
-/* 	.getattr	= zfs_getattr, */
-/* 	.access		= zfs_access, */
-/* 	.readlink	= zfs_readlink, */
-/* 	.readdir	= zfs_readdir, */
-/* 	.mknod		= zfs_mknod, */
-/* 	.mkdir		= zfs_mkdir, */
-/* 	.symlink	= zfs_symlink, */
-/* 	.unlink		= zfs_unlink, */
-/* 	.rmdir		= zfs_rmdir, */
-/* 	.rename		= zfs_rename, */
-/* 	.link		= zfs_link, */
-/* 	.chmod		= zfs_chmod, */
-/* 	.chown		= zfs_chown, */
-/* 	.truncate	= zfs_truncate, */
-/* 	.utimens	= zfs_utimens, */
-/* 	.open		= zfs_open, */
-/* 	.read		= zfs_read, */
-/* 	.write		= zfs_write, */
-/* 	.statfs		= zfs_statfs, */
-/* 	.release	= zfs_release */
-/* }; */
-
-
 int main(int argc, char *argv[])
 {
 	int ret;
-	parse_args(argc, argv);
+	//parse_args(argc, argv);
 
-	if (cf_daemonize) {
-		do_daemon(cf_pidfile);
-	}
+	//if (cf_daemonize) {
+	//	do_daemon(cf_pidfile);
+	//}
 
 	if(do_init() != 0) {
 		do_exit();
@@ -292,12 +252,12 @@ int main(int argc, char *argv[])
 	ret = pthread_join(storage_create_thread_id, NULL);
 	assert(0 == ret);
 
-	struct MountsPublicInterface* fs = create_filesystem_interface();
-	assert(fs);
-	
+	assert(s_vfs);
+	struct fuse_operations* fuse_op = CONSTRUCT_L(FUSE_OPERATIONS)(s_vfs);
+	assert(fuse_op);
 
-
-	//ret = fuse_main(argc, argv, &zfs_oper, NULL);
+	//fusermount -u zfs-fuse/mountpoint; mkdir -p zfs-fuse/mountpoint; rm ~/zfs.cow -f; dd count=1024 bs=65536 if=/dev/zero of=~/zfs.cow &> /dev/null	
+	ret = fuse_main(argc, argv, fuse_op);
 
 	do_exit();
 

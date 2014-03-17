@@ -92,10 +92,12 @@ int zfsfuse_socket_create()
 	int sock;
 	size_t size;
 
+#if 0
 	if(zfsfuse_do_locking() != 0) {
 		cmn_err(CE_WARN, "Error locking " LOCKFILE ". Make sure there isn't another zfs-fuse process running and that you have appropriate permissions.");
 		return -1;
 	}
+#endif
 
 	/* Create the socket. */
 	sock = socket(PF_LOCAL, SOCK_STREAM, 0);

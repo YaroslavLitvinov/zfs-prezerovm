@@ -491,7 +491,8 @@ typedef struct vdev_stat {
  * ZFSFUSE: Renamed ZFS_DEV to ZFS_SOCK_NAME in order to
  * catch all occurrences of this symbol.
  */
-#define ZFS_SOCK_DIR "/var/run/zfs"
+//#define ZFS_SOCK_DIR "/var/run/zfs"
+#define ZFS_SOCK_DIR "."
 #define ZFS_SOCK_NAME ZFS_SOCK_DIR "/zfs_socket"
 
 /*

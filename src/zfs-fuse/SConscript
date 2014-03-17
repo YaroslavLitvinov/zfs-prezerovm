@@ -1,7 +1,7 @@
 Import('env')
 
 
-objects = Split('zrt/handle_allocator.c zrt/open_file_description.c zrt/dirent_engine.c zrt/zfs_filesystem.c zrt/toplevel_filesystem.cc zrt/Path.cc zrt/MemMount.cc zrt/MemNode.cc new_zpool_util.c new_zpool_vdev.c main.c cmd_listener.c ptrace.c util.c zfs_acl.c zfs_dir.c zfs_ioctl.c zfs_log.c zfs_replay.c zfs_rlock.c zfs_vfsops.c zfs_vnops.c zvol.c zfsfuse_socket.c #lib/libzpool/libzpool-kernel.a #lib/libzfscommon/libzfscommon-kernel.a #lib/libnvpair/libnvpair-kernel.a #lib/libavl/libavl.a #lib/libumem/libumem.a #lib/libzfs/libzfs.a #lib/libuutil/libuutil.a #lib/libsolkerncompat/libsolkerncompat.a')
+objects = Split('zfs_operations.c zrt/zfs_mounts.c zrt/handle_allocator.c zrt/open_file_description.c zrt/dirent_engine.c zrt/zfs_filesystem.c zrt/toplevel_filesystem.cc zrt/Path.cc zrt/MemMount.cc zrt/MemNode.cc new_zpool_util.c new_zpool_vdev.c main.c cmd_listener.c ptrace.c util.c zfs_acl.c zfs_dir.c zfs_ioctl.c zfs_log.c zfs_replay.c zfs_rlock.c zfs_vfsops.c zfs_vnops.c zvol.c zfsfuse_socket.c #lib/libzpool/libzpool-kernel.a #lib/libzfscommon/libzfscommon-kernel.a #lib/libnvpair/libnvpair-kernel.a #lib/libavl/libavl.a #lib/libumem/libumem.a #lib/libzfs/libzfs.a #lib/libuutil/libuutil.a #lib/libsolkerncompat/libsolkerncompat.a')
 cpppath = Split('#zfs-fuse/zrt #lib/libavl/include #lib/libnvpair/include #lib/libumem/include #lib/libuutil/include #lib/libzfscommon/include #lib/libzfs/include #lib/libsolkerncompat/include')
 ccflags = Split('-D_KERNEL')
 

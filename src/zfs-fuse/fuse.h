@@ -28,6 +28,6 @@
 
 #define FUSE_USE_VERSION 25
 
-#include <fuse/fuse_lowlevel.h>
+#include <fuse.h>
 
 #endif

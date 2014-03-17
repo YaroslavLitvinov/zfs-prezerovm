@@ -53,6 +53,7 @@
 #include <sys/zfs_vfsops.h> //zfsvfs_t
 #include <sys/zfs_znode.h> //ZFS_ENTER
 #include <sys/fcntl.h> //flock64_t
+#include <sys/statvfs.h> //statvfs64
 
 struct ZfsFilesystem{
     struct LowLevelFilesystemPublicInterface public_;
@@ -105,17 +106,17 @@ static int zfs_statvfs(struct LowLevelFilesystemPublicInterface* this_, struct s
 		return -1;
 	}
 
-	stat.f_bsize = zfs_stat.f_bsize;
-	stat.f_frsize = zfs_stat.f_frsize;
-	stat.f_blocks = zfs_stat.f_blocks;
-	stat.f_bfree = zfs_stat.f_bfree;
-	stat.f_bavail = zfs_stat.f_bavail;
-	stat.f_files = zfs_stat.f_files;
-	stat.f_ffree = zfs_stat.f_ffree;
-	stat.f_favail = zfs_stat.f_favail;
-	stat.f_fsid = zfs_stat.f_fsid;
-	stat.f_flag = zfs_stat.f_flag;
-	stat.f_namemax = zfs_stat.f_namemax;
+	stat->f_bsize = zfs_stat.f_bsize;
+	stat->f_frsize = zfs_stat.f_frsize;
+	stat->f_blocks = zfs_stat.f_blocks;
+	stat->f_bfree = zfs_stat.f_bfree;
+	stat->f_bavail = zfs_stat.f_bavail;
+	stat->f_files = zfs_stat.f_files;
+	stat->f_ffree = zfs_stat.f_ffree;
+	stat->f_favail = zfs_stat.f_favail;
+	stat->f_fsid = zfs_stat.f_fsid;
+	stat->f_flag = zfs_stat.f_flag;
+	stat->f_namemax = zfs_stat.f_namemax;
 	
 	return 0;
 }
@@ -204,8 +205,7 @@ static int zfs_mknod(struct LowLevelFilesystemPublicInterface* this_,
 	ASSERT(vp != NULL);
 
 	struct stat st;
-	error = zfsfuse_stat(vp, &st, cred);
-
+	error = internal_stat(vp, &st);
 out:
 	if(vp != NULL)
 		VN_RELE(vp);
@@ -487,6 +487,56 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 	return error;
 }
 
+static int zfs_opendir(struct LowLevelFilesystemPublicInterface* this_, ino_t inode)
+{
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, inode, &znode, B_TRUE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	if(vp->v_type != VDIR) {
+		error = ENOTDIR;
+		goto out;
+	}
+
+	cred_t *cred = NULL;
+
+	/*
+	 * Check permissions.
+	 */
+	if (error = VOP_ACCESS(vp, VREAD | VEXEC, 0, cred, NULL))
+		goto out;
+
+	vnode_t *old_vp = vp;
+
+	/* XXX: not sure about flags */
+	error = VOP_OPEN(&vp, FREAD, cred, NULL);
+
+	ASSERT(old_vp == vp);
+out:
+	if(error)
+		VN_RELE(vp);
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+
 static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
@@ -767,7 +817,7 @@ static int zfs_symlink(struct LowLevelFilesystemPublicInterface* this_,
 	ASSERT(vp != NULL);
 
 	struct stat st;
-	error = zfsfuse_stat(vp, &st, &cred);
+	error = internal_stat(vp, &st);
 
 out:
 	if(vp != NULL)
@@ -878,6 +928,51 @@ static int zfs_link(struct LowLevelFilesystemPublicInterface* this_,
 
 	return error;
 }
+
+
+static int zfs_access(struct LowLevelFilesystemPublicInterface* this_, 
+		      ino_t inode, int mask){
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, inode, &znode, B_TRUE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *vp = ZTOV(znode);
+	ASSERT(vp != NULL);
+
+	cred_t *cred = NULL;
+
+	int mode = 0;
+	if(mask & R_OK)
+		mode |= VREAD;
+	if(mask & W_OK)
+		mode |= VWRITE;
+	if(mask & X_OK)
+		mode |= VEXEC;
+
+	error = VOP_ACCESS(vp, mode, 0, cred, NULL);
+
+	VN_RELE(vp);
+
+	ZFS_EXIT(zfsvfs);
+
+	return error;
+}
+
+
+
 static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_, 
 		      ino_t parent, const char *name,
 		      ino_t new_parent, const char *newname){
@@ -1017,6 +1112,7 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
     NULL, //chmod
     zfs_statvfs,
     zfs_stat,
+    zfs_access,
     zfs_mknod,
     zfs_mkdir,
     zfs_rmdir,
@@ -1026,6 +1122,7 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
     NULL, //fsync
     zfs_close,
     zfs_open,
+    //zfs_opendir, should not be used (may be only for FUSE)
     zfs_unlink,
     zfs_link,
     zfs_rename,
@@ -1040,5 +1137,6 @@ zfs_filesystem_construct (vfs_t *vfs,
 	struct ZfsFilesystem* this_ = malloc(sizeof(struct ZfsFilesystem));
 	this_->public_ = s_zfs_filesystem_interface;
 	this_->public_.dirent_engine = dirent_engine;
+	this_->vfs = vfs;
 	return &this_->public_;
 }

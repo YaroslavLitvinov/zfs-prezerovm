@@ -116,6 +116,7 @@ static ssize_t toplevel_readlink(struct MountsPublicInterface* this_,
 
 static int toplevel_symlink(struct MountsPublicInterface* this_,
 			    const char *oldpath, const char *newpath){
+    int ret=-1;
     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
     MemNode *newnode_parent= fs->mem_mount_cpp->GetParentMemNode(newpath);
     MemNode *newnode = fs->mem_mount_cpp->GetMemNode(newpath);
@@ -191,7 +192,7 @@ static int toplevel_statvfs(struct MountsPublicInterface* this_, const char* pat
     /*currently path is not used, but it will be used to select
      appropriate to path a lowlevel fs and to get this call for
      particular fs.*/
-
+    int ret=-1;
     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
 
     if ( fs->lowlevelfs->statvfs
@@ -233,6 +234,7 @@ static int toplevel_mknod(struct MountsPublicInterface* this_,
 			  const char* path, mode_t mode, dev_t dev){
     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
     MemNode *node;
+    MemNode *parent_node;
     int ret = -1;
 
     NAME_LENGTH_CHECK(path);
@@ -243,9 +245,19 @@ static int toplevel_mknod(struct MountsPublicInterface* this_,
 	SET_ERRNO(ENOENT);
 	return -1;
     }
+    if ( (parent_node=fs->mem_mount_cpp->GetParentMemNode(path)) == NULL ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    const char* name = name_from_path( path);
+    if ( name == NULL ){
+	SET_ERRNO(ENOTDIR);
+	return -1;
+    }
 
     if ( fs->lowlevelfs->mknod
-	 && (ret=fs->lowlevelfs->mknod(fs->lowlevelfs, node->slot(), mode, dev)) != -1 ){
+	 && (ret=fs->lowlevelfs->mknod(fs->lowlevelfs, parent_node->slot(), name, mode, dev)) != -1 ){
 	;
     }
     
@@ -643,6 +655,55 @@ static int toplevel_open(struct MountsPublicInterface* this_, const char* path, 
 	//     }
 	// }
 
+// #ifdef FUSE
+// static DIR *toplevel_opendir(struct MountsPublicInterface* this_, const char* path){
+//     int ret=-1;
+//     struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+//     struct stat st;
+//     MemNode *node = fs->mem_mount_cpp->GetMemNode(path);
+//     DIR *dir = NULL;
+
+//     if ( strlen(path) > NAME_MAX ){
+// 	SET_ERRNO(ENAMETOOLONG);
+//         return NULL;
+//     }
+
+//     if ( fs->lowlevelfs->stat ){
+// 	ret=fs->lowlevelfs->stat( fs->lowlevelfs, node->slot(), &st );
+//     }
+//     else{
+// 	SET_ERRNO(ENOSYS);
+// 	return NULL;
+//     }
+
+//     if ( !S_ISDIR(st.st_mode) ){
+// 	SET_ERRNO(ENOTDIR);
+// 	return NULL;
+//     }
+
+//     if (fs->lowlevelfs->opendir != NULL &&
+// 	(dir = fs->lowlevelfs->opendir(fs->lowlevelfs, node->slot())) != NULL ){
+
+// 	int oflags = O_RDONLY | O_DIRECTORY;
+// 	int open_file_description_id = fs->open_files_pool->getnew_ofd(oflag);
+
+// 	/*ask for file descriptor in handle allocator*/
+// 	ret = fs->handle_allocator->allocate_handle( this_, 
+// 						     node->slot(),
+// 						     open_file_description_id);
+// 	if ( ret < 0 ){
+// 	    /*it's hipotetical but possible case if amount of open files 
+// 	      are exceeded an maximum value.*/
+// 	    fs->open_files_pool->release_ofd(open_file_description_id);
+// 	    SET_ERRNO(ENFILE);
+// 	    return NULL;
+// 	}
+// 	fs->mem_mount_cpp->Ref(node->slot()); /*set file referred*/
+// 	/*success*/
+//     }
+//     return ret;
+// }
+// #endif //FUSE
 
 static int toplevel_fcntl(struct MountsPublicInterface* this_, int fd, int cmd, ...){
     int ret;
@@ -745,8 +806,28 @@ static int toplevel_unlink(struct MountsPublicInterface* this_, const char* path
 }
 
 static int toplevel_access(struct MountsPublicInterface* this_, const char* path, int amode){
-    SET_ERRNO(ENOSYS);
-    return -1;
+    struct TopLevelFs* fs = (struct TopLevelFs*)this_;
+    MemNode *node;
+    int ret = -1;
+
+    NAME_LENGTH_CHECK(path);
+
+    node = fs->mem_mount_cpp->GetMemNode(path);
+
+    if ( !node ){
+	SET_ERRNO(ENOENT);
+	return -1;
+    }
+
+    /*If access function not defined just pass OK result*/
+    if ( fs->lowlevelfs->access ){
+	if ( (ret=fs->lowlevelfs->access(fs->lowlevelfs, node->slot(), amode)) != -1){
+	    return 0;
+	}
+    }
+    else return 0;
+
+    return ret;
 }
 
 static int toplevel_ftruncate_size(struct MountsPublicInterface* this_, int fd, off_t length){
@@ -893,6 +974,7 @@ static struct MountsPublicInterface KTopLevelMountWraper = {
     toplevel_close,
     toplevel_lseek,
     toplevel_open,
+    //toplevel_opendir,
     toplevel_fcntl,
     toplevel_remove,
     toplevel_unlink,

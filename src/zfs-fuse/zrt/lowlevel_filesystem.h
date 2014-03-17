@@ -39,6 +39,8 @@ struct LowLevelFilesystemPublicInterface{
 		   struct statvfs *buf);
     int (*stat)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t inode, struct stat *buf);
+    int (*access)(struct LowLevelFilesystemPublicInterface* this_, 
+		ino_t inode, int mode);
     int (*mknod)(struct LowLevelFilesystemPublicInterface* this_,
 		 ino_t parent_inode, const char *name, mode_t mode, dev_t rdev);
     int (*mkdir)(struct LowLevelFilesystemPublicInterface* this_, 
@@ -56,6 +58,7 @@ struct LowLevelFilesystemPublicInterface{
     int (*close)(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags);
     int (*open)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t parent_inode, const char* name, int oflag, uint32_t mode);
+    //int (*opendir)(struct LowLevelFilesystemPublicInterface* this_, ino_t inode);
     int (*unlink)(struct LowLevelFilesystemPublicInterface* this_, 
 		  ino_t parent_inode, const char* name);
     int (*link)(struct LowLevelFilesystemPublicInterface* this_, 

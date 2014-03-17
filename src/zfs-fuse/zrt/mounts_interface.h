@@ -19,9 +19,14 @@
 #ifndef MOUNTS_INTERFACE_H_
 #define MOUNTS_INTERFACE_H_
 
+#define FUSE
+
 #include <stdint.h>
 #include <stddef.h> //size_t
 #include <unistd.h> //ssize_t
+/* #ifdef FUSE */
+/* #include <sys/dirent.h> //DIR */
+/* #endif //FUSE */
 
 struct stat;
 
@@ -60,9 +65,8 @@ struct MountsPublicInterface{
     int (*getdents)(struct MountsPublicInterface* this_,int fd, void *buf, unsigned int count);
     int (*fsync)(struct MountsPublicInterface* this_,int fd);
 
-    // System calls handled by KernelProxy that rely on mount-specific calls
     // close() calls the mount's Unref() if the file handle corresponding to
-    // fd was open
+    // fd was opened
     int (*close)(struct MountsPublicInterface* this_,int fd);
     // lseek() relies on the mount's Stat() to determine whether or not the
     // file handle corresponding to fd is a directory
@@ -70,6 +74,10 @@ struct MountsPublicInterface{
     // open() relies on the mount's Creat() if O_CREAT is specified.  open()
     // also relies on the mount's GetNode().
     int (*open)(struct MountsPublicInterface* this_,const char* path, int oflag, uint32_t mode);
+#ifdef FUSE
+    //new added for ZFS
+    //DIR *(*opendir)(struct MountsPublicInterface* this_,const char* path);
+#endif
     //performs one of the operations described below on the open file
     //descriptor fd.  The operation is determined by cmd.
     int (*fcntl)(struct MountsPublicInterface* this_,int fd, int cmd, ...);
