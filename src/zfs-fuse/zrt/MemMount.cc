@@ -46,6 +46,11 @@ extern "C" {
 MemMount::MemMount() {
     // Don't use the zero slot
     slots_.Alloc();
+    //Also Don't use slot #1...
+    slots_.Alloc();
+    //and #2
+    slots_.Alloc();
+    //zfs filesystem is relying on inode=3 and expected it as root
     int slot = slots_.Alloc();
     root_ = slots_.At(slot);
     root_->second_phase_construct(NULL); /*it's no another hardlinks for this node*/

@@ -24,6 +24,8 @@
 #include <unistd.h>
 #include <dirent.h>
 
+#define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
+
 static int d_type_from_mode(unsigned int mode){
     switch (mode & S_IFMT) {
     case S_IFBLK:  return DT_BLK;
@@ -37,6 +39,15 @@ static int d_type_from_mode(unsigned int mode){
     }
 }
 
+static size_t adjusted_dirent_size(int d_name_len){
+    /*dirent structure not have constant size it's can be vary depends on name length.       
+      also dirent size should be multiple of the 8 bytes, so adjust it*/
+    size_t adjusted_size = 
+	offsetof(DIRENT, d_name) + d_name_len +1 /* NUL termination */;
+    adjusted_size = ROUND_UP( adjusted_size, 8 );
+    return adjusted_size;
+}
+
 /*low level function, copy dirent args into buf*/
 static size_t put_dirent_into_buf( char *buf, 
 				   int buf_size, 
@@ -44,7 +55,6 @@ static size_t put_dirent_into_buf( char *buf,
 				   unsigned long d_off,
 				   unsigned long mode,
 				   const char *d_name ){
-#define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
     DIRENT *dirent = (DIRENT *) buf;
     ZRT_LOG(L_EXTRA, "dirent offset: ino_off=%u, off_off=%u, reclen_off=%u, name_off=%u",
             offsetof( DIRENT, d_ino ),
@@ -53,11 +63,7 @@ static size_t put_dirent_into_buf( char *buf,
             offsetof( DIRENT, d_name ) );
 
     int namelength = strlen(d_name);
-    /*dirent structure not have constant size it's can be vary depends on name length.       
-      also dirent size should be multiple of the 8 bytes, so adjust it*/
-    uint32_t adjusted_size = 
-	offsetof(DIRENT, d_name) + namelength +1 /* NUL termination */;
-    adjusted_size = ROUND_UP( adjusted_size, 8 );
+    size_t adjusted_size = adjusted_dirent_size(namelength);
 
     /*if size of the current dirent data is less than available buffer size
      then fill it by data*/
@@ -91,6 +97,7 @@ static size_t put_dirent_into_buf( char *buf,
 }
 
 struct DirentEnginePublicInterface s_dirent_engine = {
+    adjusted_dirent_size,
     put_dirent_into_buf
 };
 

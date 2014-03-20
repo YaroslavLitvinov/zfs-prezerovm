@@ -145,8 +145,7 @@ static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_,
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	struct stat stbuf;
-	error = internal_stat(vp, &stbuf);
+	error = internal_stat(vp, buf);
 
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);

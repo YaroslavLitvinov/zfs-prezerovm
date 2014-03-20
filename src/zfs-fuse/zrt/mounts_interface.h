@@ -74,10 +74,6 @@ struct MountsPublicInterface{
     // open() relies on the mount's Creat() if O_CREAT is specified.  open()
     // also relies on the mount's GetNode().
     int (*open)(struct MountsPublicInterface* this_,const char* path, int oflag, uint32_t mode);
-#ifdef FUSE
-    //new added for ZFS
-    //DIR *(*opendir)(struct MountsPublicInterface* this_,const char* path);
-#endif
     //performs one of the operations described below on the open file
     //descriptor fd.  The operation is determined by cmd.
     int (*fcntl)(struct MountsPublicInterface* this_,int fd, int cmd, ...);

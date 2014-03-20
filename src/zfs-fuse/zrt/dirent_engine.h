@@ -24,6 +24,7 @@
 #define DIRENT struct dirent
 
 struct DirentEnginePublicInterface{
+    size_t (*adjusted_dirent_size)(int d_name_len);
     size_t (*add_dirent_into_buf)( char *buf, 
 				   int buf_size, 
 				   unsigned long d_ino, 

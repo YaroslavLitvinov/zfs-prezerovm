@@ -48,6 +48,7 @@
 #include "mounts_interface.h" //struct MountsPublicInterface
 
 
+
 static struct MountsPublicInterface* s_toplevelfs;
 
 /*the same as stat*/
@@ -121,12 +122,50 @@ static int op_access(const char *path, int mode){
     return s_toplevelfs->access(s_toplevelfs, path, mode);
 }
 
+static int op_opendir(const char *path, struct fuse_file_info *fi){
+    fi->flags |= O_DIRECTORY;
+    return (fi->fh=s_toplevelfs->open(s_toplevelfs, path, fi->flags, 0));
+}
  
-/* int(* 	opendir )(const char *, struct fuse_file_info *){ */
-/* } */
- 
-/* int(* 	readdir )(const char *, void *, fuse_fill_dir_t, off_t, struct fuse_file_info *){ */
-/* } */
+static int op_releasedir(const char *path, struct fuse_file_info *fi){
+    return s_toplevelfs->close(s_toplevelfs, fi->fh);
+}
+
+static int op_release(const char *path, struct fuse_file_info *fi){
+    return s_toplevelfs->close(s_toplevelfs, fi->fh);
+}
+
+static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi){
+    static char temp_buf[PATH_MAX];
+    static int  temp_buf_off = sizeof(temp_buf);
+    static int  getdents_buf_len = 0;
+
+    int ret=0;
+    struct DirentEnginePublicInterface *dirent_engine = INSTANCE_L(DIRENT_ENGINE)();
+
+    /*handle already readed dirent in temp buffer OR read new by getdents call*/
+    while( temp_buf_off < getdents_buf_len || 
+	   (getdents_buf_len=s_toplevelfs->getdents(s_toplevelfs, fi->fh, temp_buf, sizeof(temp_buf))) > 0 ){
+	assert(getdents_buf_len<=sizeof(temp_buf));
+	/*check if all info handled in temp_buf*/
+	if ( temp_buf_off >= getdents_buf_len ){
+	    temp_buf_off=0;
+	}
+	//extract dir_item from temp getdents's buffer
+	struct dirent *dir_item = (struct dirent *)temp_buf[temp_buf_off];
+	temp_buf_off+=dirent_engine->adjusted_dirent_size( strlen(dir_item->d_name) );
+	//add item to fuse buffer by filler function
+	if ( filler(buf, dir_item->d_name, NULL, 0) != 0 ){
+	    return ENOMEM;
+	}
+    }
+
+    if ( getdents_buf_len == 0 ){
+	temp_buf_off = sizeof(temp_buf);
+    }
+
+    return ret;
+}
  
 /* void *(* 	init )(struct fuse_conn_info *conn){ */
 /* } */
@@ -190,17 +229,17 @@ struct fuse_operations s_zfs_operation = {
     .open     = op_open,     //ok
     .read     = op_read,     //ok
     .write    = op_write,    //ok
-    .statfs  = op_statvfs,   //not needed
+    .statfs   = op_statvfs,   //not needed
     //flush,    //not needed or NULL
-    //release,  //FUSE function
+    .release  = op_release,//FUSE function
     //fsync,    //ZFS-FUSE has it, ZRT not
     //setxattr, //not needed
     //getxattr, //not needed
     //listxattr,//not needed 
     //removexattr,//not needed
-    //opendir,  //ZFS-FUSE has, ZRT not
-    //readdir,  //ZFS-FUSE has, ZRT has not
-    //releasedir,//FUSE function
+    .opendir  = op_opendir,  //ZFS-FUSE has, ZRT not
+    .readdir  = op_readdir,  //ZFS-FUSE has, ZRT has not
+    .releasedir= op_releasedir,//FUSE function
     //fsyncdir, //ZRT, ZFS-FUSE has not
     //init,     //ZRT has not
     //destroy,  //ZFS-FUSE has, ZRT has not, not needed
