@@ -54,12 +54,19 @@
 #include <sys/zfs_znode.h> //ZFS_ENTER
 #include <sys/fcntl.h> //flock64_t
 #include <sys/statvfs.h> //statvfs64
+#include <sys/cred_impl.h> //struct cred, cred_t
+#include <sys/cred.h> //cred_t
+
+
+#define INVERT_SIGN( errcode ) -(errcode)
 
 struct ZfsFilesystem{
     struct LowLevelFilesystemPublicInterface public_;
     vfs_t *vfs;
 };
 
+
+static cred_t s_cred;
 
 static int internal_stat(vnode_t *vp, struct stat *stbuf)
 {
@@ -69,10 +76,10 @@ static int internal_stat(vnode_t *vp, struct stat *stbuf)
 	vattr_t vattr;
 	vattr.va_mask = AT_STAT | AT_NBLOCKS | AT_BLKSIZE | AT_SIZE;
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	int error = VOP_GETATTR(vp, &vattr, 0, cred, NULL);
 	if(error)
-	    return error;
+	    return INVERT_SIGN(error);
 
 	memset(stbuf, 0, sizeof(struct stat));
 
@@ -91,6 +98,57 @@ static int internal_stat(vnode_t *vp, struct stat *stbuf)
 	TIMESTRUC_TO_TIME(vattr.va_ctime, &stbuf->st_ctime);
 
 	return 0;
+}
+
+static int zfs_lookup(struct LowLevelFilesystemPublicInterface* this_,
+		  int parent_inode, char *name)
+{
+	if(strlen(name) >= MAXNAMELEN)
+	    return INVERT_SIGN(ENAMETOOLONG);
+	int retinode;
+	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
+
+	vfs_t *vfs = zfs->vfs;
+	zfsvfs_t *zfsvfs = vfs->vfs_data;
+
+	ZFS_ENTER(zfsvfs);
+
+	znode_t *znode;
+
+	int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
+	if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return error == EEXIST ? ENOENT : error;
+	}
+
+	ASSERT(znode != NULL);
+	vnode_t *dvp = ZTOV(znode);
+	ASSERT(dvp != NULL);
+
+	vnode_t *vp = NULL;
+	cred_t *cred = &s_cred;
+
+	error = VOP_LOOKUP(dvp, (char *) name, &vp, NULL, 0, NULL, cred, NULL, NULL, NULL);
+	if(error)
+		goto out;
+
+	if(vp == NULL)
+		goto out;
+
+	retinode = VTOZ(vp)->z_id;
+	struct stat st;
+	error = internal_stat(vp, &st);
+	if ( error == 0 ) return retinode;
+
+out:
+	if(vp != NULL)
+		VN_RELE(vp);
+	VN_RELE(dvp);
+	ZFS_EXIT(zfsvfs);
+
+	return INVERT_SIGN(error);
 }
 
 
@@ -138,7 +196,7 @@ static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 
 	ASSERT(znode != NULL);
@@ -149,14 +207,14 @@ static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_,
 
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
-	return error;
+	return INVERT_SIGN(error);
 }
 
 static int zfs_mknod(struct LowLevelFilesystemPublicInterface* this_, 
 		     ino_t parent_inode, const char *name, mode_t mode, dev_t rdev)
 {
 	if(strlen(name) >= MAXNAMELEN)
-		return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
@@ -172,14 +230,14 @@ static int zfs_mknod(struct LowLevelFilesystemPublicInterface* this_,
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? ENOENT : error;
+		return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 
 	ASSERT(znode != NULL);
 	vnode_t *dvp = ZTOV(znode);
 	ASSERT(dvp != NULL);
 
-	cred_t * cred = NULL;
+	cred_t * cred = &s_cred;
 
 	vattr_t vattr;
 	vattr.va_type = IFTOVT(mode);
@@ -210,7 +268,10 @@ out:
 		VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if ( error == 0 ) 
+	    return VTOZ(vp)->z_id; //inode
+	else
+	    return INVERT_SIGN(error);
 }
 
 
@@ -219,7 +280,7 @@ static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_,
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	if(strlen(name) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	vfs_t *vfs = zfs->vfs;
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
@@ -233,7 +294,7 @@ static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 
 	ASSERT(znode != NULL);
@@ -247,7 +308,7 @@ static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_,
 	vattr.va_mode = mode & PERMMASK;
 	vattr.va_mask = AT_TYPE | AT_MODE;
 
-	cred_t* cred = NULL;
+	cred_t* cred = &s_cred;
 	error = VOP_MKDIR(dvp, (char *) name, &vattr, &vp, cred, NULL, 0, NULL);
 	if(error)
 	    goto out;
@@ -263,14 +324,18 @@ static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_,
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if ( error == 0 ) 
+	    return VTOZ(vp)->z_id; //inode
+	else
+	    return INVERT_SIGN(error);
 }
+
 static int zfs_rmdir(struct LowLevelFilesystemPublicInterface* this_, 
 		     ino_t parent_inode, const char* name){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	if(strlen(name) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	vfs_t *vfs = zfs->vfs;
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
@@ -291,7 +356,7 @@ static int zfs_rmdir(struct LowLevelFilesystemPublicInterface* this_,
 	vnode_t *dvp = ZTOV(znode);
 	ASSERT(dvp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	/* FUSE doesn't care if we remove the current working directory
 	   so we just pass NULL as the cwd parameter (no problem for ZFS) */
@@ -304,7 +369,7 @@ static int zfs_rmdir(struct LowLevelFilesystemPublicInterface* this_,
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 
 static ssize_t zfs_pread(struct LowLevelFilesystemPublicInterface* this_,
@@ -322,7 +387,7 @@ static ssize_t zfs_pread(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
@@ -341,7 +406,7 @@ static ssize_t zfs_pread(struct LowLevelFilesystemPublicInterface* this_,
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = offset;
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	/*flags can't be checked here because flag can't be
 	  represented by inode, so do test skiping by specifying valid
@@ -350,7 +415,10 @@ static ssize_t zfs_pread(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if ( uio.uio_loffset - offset >=0 && error == 0 ) 
+	    return uio.uio_loffset - offset; //readed bytes
+
+	return INVERT_SIGN(error);
 }
 
 static ssize_t zfs_pwrite(struct LowLevelFilesystemPublicInterface* this_,
@@ -368,7 +436,7 @@ static ssize_t zfs_pwrite(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
@@ -387,7 +455,7 @@ static ssize_t zfs_pwrite(struct LowLevelFilesystemPublicInterface* this_,
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = offset;
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	/*flags can't be checked here because flag can't be
 	  represented by inode, so do test skiping by specifying valid
 	  flag*/
@@ -399,7 +467,11 @@ static ssize_t zfs_pwrite(struct LowLevelFilesystemPublicInterface* this_,
 	    /* When not using direct_io, we must always write 'size' bytes */
 	    VERIFY(uio.uio_resid == 0);
 	}
-	return error;
+
+	if ( uio.uio_loffset - offset >=0 && error == 0 ) 
+	    return uio.uio_loffset - offset; //wrote bytes
+
+	return INVERT_SIGN(error);
 }
 
 static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_, 
@@ -417,18 +489,18 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
 	if(vp->v_type != VDIR)
-	    return ENOTDIR;
+	    return INVERT_SIGN(ENOTDIR);
 
 	ZFS_ENTER(zfsvfs);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	union {
 	    char buf[DIRENT64_RECLEN(MAXNAMELEN)];
@@ -483,7 +555,7 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
  out:
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 
 static int zfs_opendir(struct LowLevelFilesystemPublicInterface* this_, ino_t inode)
@@ -501,7 +573,7 @@ static int zfs_opendir(struct LowLevelFilesystemPublicInterface* this_, ino_t in
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? ENOENT : error;
+		return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
 	}
 
 	ASSERT(znode != NULL);
@@ -513,7 +585,7 @@ static int zfs_opendir(struct LowLevelFilesystemPublicInterface* this_, ino_t in
 		goto out;
 	}
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	/*
 	 * Check permissions.
@@ -532,7 +604,7 @@ out:
 		VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 
 
@@ -551,13 +623,13 @@ static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inod
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	VOP_CLOSE(vp, flags, 1, (offset_t) 0, cred, NULL);
 
@@ -567,21 +639,21 @@ static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inod
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 static int zfs_open(struct LowLevelFilesystemPublicInterface* this_, 
 		    ino_t parent_inode, const char* name, int fflags, uint32_t createmode){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	if(name && strlen(name) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	vfs_t *vfs = zfs->vfs;
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
 
 	ZFS_ENTER(zfsvfs);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	/* Map flags */
 	int mode, flags;
@@ -623,7 +695,7 @@ static int zfs_open(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
@@ -717,13 +789,14 @@ static int zfs_open(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
-
+	if (flags & FCREAT)
+	    return VTOZ(vp)->z_id;
+	else
+	    return INVERT_SIGN(error);
 }
 
 static ssize_t zfs_readlink(struct LowLevelFilesystemPublicInterface* this_, 
-			    ino_t inode,
-			    char *buf, size_t bufsize)
+			    ino_t inode, char *buf, size_t bufsize)
 {
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 	
@@ -739,7 +812,7 @@ static ssize_t zfs_readlink(struct LowLevelFilesystemPublicInterface* this_,
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? ENOENT : error;
+		return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
@@ -758,13 +831,19 @@ static ssize_t zfs_readlink(struct LowLevelFilesystemPublicInterface* this_,
 	uio.uio_resid = iovec.iov_len;
 	uio.uio_loffset = 0;
 
-	cred_t * cred = NULL;
+	cred_t * cred = &s_cred;
 	error = VOP_READLINK(vp, &uio, cred, NULL);
 
 	VN_RELE(vp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if(!error) {
+		VERIFY(uio.uio_loffset < bufsize);
+		buf[uio.uio_loffset] = '\0';
+		return uio.uio_loffset;
+	}
+	else
+	    return INVERT_SIGN(error);
 }
 
 
@@ -772,7 +851,7 @@ static int zfs_symlink(struct LowLevelFilesystemPublicInterface* this_,
 		       const char *link, ino_t parent_inode, const char *name)
 {
 	if(strlen(name) >= MAXNAMELEN)
-		return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
@@ -788,14 +867,14 @@ static int zfs_symlink(struct LowLevelFilesystemPublicInterface* this_,
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? ENOENT : error;
+		return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
 	vnode_t *dvp = ZTOV(znode);
 	ASSERT(dvp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	vattr_t vattr;
 	vattr.va_type = VLNK;
@@ -825,7 +904,10 @@ out:
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if ( error == 0 )
+	    return VTOZ(vp)->z_id;
+	else
+	    return INVERT_SIGN(error);
 }
 
 
@@ -834,7 +916,7 @@ static int zfs_unlink(struct LowLevelFilesystemPublicInterface* this_,
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 	
 	if(strlen(name) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	vfs_t *vfs = zfs->vfs;
 	zfsvfs_t *zfsvfs = vfs->vfs_data;
@@ -848,25 +930,25 @@ static int zfs_unlink(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
 	vnode_t *dvp = ZTOV(znode);
 	ASSERT(dvp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	error = VOP_REMOVE(dvp, (char *) name, cred, NULL, 0);
 
 	VN_RELE(dvp);
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 static int zfs_link(struct LowLevelFilesystemPublicInterface* this_, 
 		    ino_t inode, ino_t new_parent, const char *newname){
 	if(strlen(newname) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 	vfs_t *vfs = zfs->vfs;
@@ -881,7 +963,7 @@ static int zfs_link(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(s_znode != NULL);
@@ -900,7 +982,7 @@ static int zfs_link(struct LowLevelFilesystemPublicInterface* this_,
 	ASSERT(svp != NULL);
 	ASSERT(tdvp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	error = VOP_LINK(tdvp, svp, (char *) newname, cred, NULL, 0);
 
 	vnode_t *vp = NULL;
@@ -925,7 +1007,10 @@ static int zfs_link(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	if ( error == 0 )
+	    return VTOZ(vp)->z_id;
+	else
+	    return INVERT_SIGN(error);
 }
 
 
@@ -944,14 +1029,14 @@ static int zfs_access(struct LowLevelFilesystemPublicInterface* this_,
 		ZFS_EXIT(zfsvfs);
 		/* If the inode we are trying to get was recently deleted
 		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? ENOENT : error;
+		return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 
 	int mode = 0;
 	if(mask & R_OK)
@@ -967,7 +1052,7 @@ static int zfs_access(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 
 
@@ -975,10 +1060,8 @@ static int zfs_access(struct LowLevelFilesystemPublicInterface* this_,
 static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_, 
 		      ino_t parent, const char *name,
 		      ino_t new_parent, const char *newname){
-	if(strlen(name) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
-	if(strlen(newname) >= MAXNAMELEN)
-	    return ENAMETOOLONG;
+	if(strlen(name) >= MAXNAMELEN || strlen(newname) >= MAXNAMELEN )
+	    return INVERT_SIGN(ENAMETOOLONG);
 
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 	vfs_t *vfs = zfs->vfs;
@@ -993,7 +1076,7 @@ static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(p_znode != NULL);
@@ -1004,7 +1087,7 @@ static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 
 	ASSERT(np_znode != NULL);
@@ -1014,7 +1097,7 @@ static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_,
 	ASSERT(p_vp != NULL);
 	ASSERT(np_vp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	error = VOP_RENAME(p_vp, (char *) name, np_vp, (char *) newname, cred, NULL, 0);
 
 	VN_RELE(p_vp);
@@ -1022,7 +1105,7 @@ static int zfs_rename(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 static int zfs_ftruncate_size(struct LowLevelFilesystemPublicInterface* this_, 
 			      ino_t inode, off_t length){
@@ -1039,13 +1122,13 @@ static int zfs_ftruncate_size(struct LowLevelFilesystemPublicInterface* this_,
 	    ZFS_EXIT(zfsvfs);
 	    /* If the inode we are trying to get was recently deleted
 	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return error == EEXIST ? ENOENT : error;
+	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
 	}
 	ASSERT(znode != NULL);
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	cred_t *cred = NULL;
+	cred_t *cred = &s_cred;
 	boolean_t release;
 	int flags = FWRITE; 
 	/*Flags did checked on toplevelfs, and real flags checking
@@ -1100,11 +1183,12 @@ static int zfs_ftruncate_size(struct LowLevelFilesystemPublicInterface* this_,
 
 	ZFS_EXIT(zfsvfs);
 
-	return error;
+	return INVERT_SIGN(error);
 }
 
 
 static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
+    zfs_lookup,
     zfs_readlink,
     zfs_symlink,
     NULL, //chown

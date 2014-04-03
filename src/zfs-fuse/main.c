@@ -67,7 +67,7 @@
 
 #include "zfs_comutil.h"
 #include "zfs_filesystem.h"
-#include "toplevel_filesystem.h"
+#include "zfs_toplevel_filesystem.h"
 #include "open_file_description.h"
 #include "new_zpool_util.h"
 #include "handle_allocator.h"

@@ -17,11 +17,12 @@
  */
 
 #include "zfs_filesystem.h"
-#include "toplevel_filesystem.h"
+#include "zfs_toplevel_filesystem.h"
 #include "open_file_description.h"
 #include "lowlevel_filesystem.h"
 #include "handle_allocator.h"
 #include "dirent_engine.h"
+#include "cached_lookup.h"
 
 extern vfs_t*  s_vfs;
 
@@ -35,12 +36,16 @@ struct MountsPublicInterface* zfs_mounts_construct(vfs_t *vfs){
     struct LowLevelFilesystemPublicInterface* zfs_lowlevel_fs = 
 	CONSTRUCT_L(ZFS_FILESYSTEM)( s_vfs, dirent_engine );
 
+    struct CachedLookupPublicInterface* zfs_cached_lookup =
+	CONSTRUCT_L(CACHED_LOOKUP)( zfs_lowlevel_fs );
+
     /*create filesystem implementation of much top level, which can
      accept paths, this interface purely can be used inside of ZRT*/
     struct MountsPublicInterface* toplevel_fs = 
-	CONSTRUCT_L(TOPLEVEL_FILESYSTEM)( INSTANCE_L(HANDLE_ALLOCATOR)(),
-					  INSTANCE_L(OPEN_FILES_POOL)(),
-					  zfs_lowlevel_fs);
+	CONSTRUCT_L(ZFS_TOPLEVEL_FILESYSTEM)( INSTANCE_L(HANDLE_ALLOCATOR)(),
+					      INSTANCE_L(OPEN_FILES_POOL)(),
+					      zfs_cached_lookup,
+					      zfs_lowlevel_fs);
     return toplevel_fs;
 }
 

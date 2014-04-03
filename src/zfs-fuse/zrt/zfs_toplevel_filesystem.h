@@ -16,15 +16,15 @@
  */
 
 
-#ifndef MEM_MOUNT_WRAPER_H_
-#define MEM_MOUNT_WRAPER_H_
+#ifndef __ZFS_TOPLEVEL_FILESYSTEM_H__
+#define __ZFS_TOPLEVEL_FILESYSTEM_H__
 
 #include "mounts_interface.h" //struct MountsPublicInterface
 
 #include "zrt_defines.h" //CONSTRUCT_L
 
 /*name of constructor*/
-#define TOPLEVEL_FILESYSTEM toplevel_filesystem_construct
+#define ZFS_TOPLEVEL_FILESYSTEM zfs_toplevel_filesystem_construct
 
 #ifdef __cplusplus
 extern "C" {
@@ -34,13 +34,14 @@ extern "C" {
     struct OpenFilesPool;
 
     struct MountsPublicInterface* 
-    toplevel_filesystem_construct( struct HandleAllocator* handle_allocator,
-				   struct OpenFilesPool* open_files_pool,
-				   struct LowLevelFilesystemPublicInterface* lowlevelfs);
+    zfs_toplevel_filesystem_construct( struct HandleAllocator* handle_allocator,
+				       struct OpenFilesPool* open_files_pool,
+				       struct CachedLookupPublicInterface* cached_lookup,
+				       struct LowLevelFilesystemPublicInterface* lowlevelfs);
     
 #ifdef __cplusplus
 }
 #endif
 
 
-#endif /* MEM_MOUNT_WRAPER_H_ */
+#endif /* __ZFS_TOPLEVEL_FILESYSTEM_H__ */

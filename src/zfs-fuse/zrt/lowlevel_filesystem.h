@@ -27,6 +27,8 @@ struct stat;
 
 
 struct LowLevelFilesystemPublicInterface{
+    ino_t (*lookup)(struct LowLevelFilesystemPublicInterface* this_,
+		  ino_t parent_inode, char *name);
     ssize_t (*readlink)(struct LowLevelFilesystemPublicInterface* this_,
 			ino_t inode, char *buf, size_t bufsize);
     int (*symlink)(struct LowLevelFilesystemPublicInterface* this_, 

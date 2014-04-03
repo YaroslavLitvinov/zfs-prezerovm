@@ -53,33 +53,45 @@ static struct MountsPublicInterface* s_toplevelfs;
 
 /*the same as stat*/
 static int op_getattr(const char *path, struct stat *st){
-    return s_toplevelfs->stat(s_toplevelfs, path, st);
+    int ret = s_toplevelfs->stat(s_toplevelfs, path, st);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_readlink(const char *path, char *buf, size_t bufsize){
     ssize_t ret = s_toplevelfs->readlink(s_toplevelfs, path, buf, bufsize);
     if ( ret > 0 ) return 0; //fuse: The return value should be 0 for success.
-    else return ret;
+    else return -errno;
 }
 
 static int op_mknod(const char *path, mode_t mode, dev_t dev){
-    return s_toplevelfs->mknod(s_toplevelfs, path, mode, dev);
+    int ret = s_toplevelfs->mknod(s_toplevelfs, path, mode, dev);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_mkdir(const char *path, mode_t mode){
-    return s_toplevelfs->mkdir(s_toplevelfs, path, mode);
+    int ret = s_toplevelfs->mkdir(s_toplevelfs, path, mode);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_unlink(const char *path){
-    return s_toplevelfs->unlink(s_toplevelfs, path);
+    int ret = s_toplevelfs->unlink(s_toplevelfs, path);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_rmdir(const char *path){
-    return s_toplevelfs->rmdir(s_toplevelfs, path);
+    int ret = s_toplevelfs->rmdir(s_toplevelfs, path);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_symlink(const char *oldpath, const char *newpath){
-    return s_toplevelfs->symlink(s_toplevelfs, oldpath, newpath);
+    int ret = s_toplevelfs->symlink(s_toplevelfs, oldpath, newpath);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
  
 /* static int op_rename(const char *oldpath, const char *newpath){ */
@@ -87,52 +99,73 @@ static int op_symlink(const char *oldpath, const char *newpath){
 /* } */
  
 static int op_link(const char *oldpath, const char *newpath){
-    return s_toplevelfs->link(s_toplevelfs, oldpath, newpath);
+    int ret = s_toplevelfs->link(s_toplevelfs, oldpath, newpath);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 	
 static int op_chmod(const char *path, mode_t mode){
-    return s_toplevelfs->chmod(s_toplevelfs, path, mode);
+    int ret = s_toplevelfs->chmod(s_toplevelfs, path, mode);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
  
 static int op_chown(const char *path, uid_t owner, gid_t group){
-    return s_toplevelfs->chown(s_toplevelfs, path, owner, group);
+    int ret = s_toplevelfs->chown(s_toplevelfs, path, owner, group);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
  
 static int op_open(const char *path, struct fuse_file_info *fi){
     int fd = s_toplevelfs->open(s_toplevelfs, path, fi->flags, 0);
-    if ( fd < 0 )
-	return fd;
+    if ( fd < 0 ){
+        return -errno;
+    }
     fi->fh = fd;
     return 0;
 }
  
 static int op_read(const char *path, char *buf, size_t bufsize, off_t offset, struct fuse_file_info *fi){
-    return s_toplevelfs->pread(s_toplevelfs, fi->fh, buf, bufsize, offset);
+    int ret = s_toplevelfs->pread(s_toplevelfs, fi->fh, buf, bufsize, offset);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
  
 static int op_write(const char *path, const char *buf, size_t bufsize, off_t offset, struct fuse_file_info *fi){
-    return s_toplevelfs->pwrite(s_toplevelfs, fi->fh, buf, bufsize, offset);
+    int ret = s_toplevelfs->pwrite(s_toplevelfs, fi->fh, buf, bufsize, offset);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
  
 static int op_statvfs(const char *path, struct statvfs *buf){
-    return s_toplevelfs->statvfs(s_toplevelfs, path, buf);
+    int ret = s_toplevelfs->statvfs(s_toplevelfs, path, buf);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_access(const char *path, int mode){
-    return s_toplevelfs->access(s_toplevelfs, path, mode);
+    int ret = s_toplevelfs->access(s_toplevelfs, path, mode);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_opendir(const char *path, struct fuse_file_info *fi){
     fi->flags |= O_DIRECTORY;
-    return (fi->fh=s_toplevelfs->open(s_toplevelfs, path, fi->flags, 0));
+    fi->fh=s_toplevelfs->open(s_toplevelfs, path, fi->flags, 0);
+    if ( fi->fh == -1 ) return -errno;
+    else return fi->fh;
 }
  
 static int op_releasedir(const char *path, struct fuse_file_info *fi){
-    return s_toplevelfs->close(s_toplevelfs, fi->fh);
+    int ret = s_toplevelfs->close(s_toplevelfs, fi->fh);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_release(const char *path, struct fuse_file_info *fi){
-    return s_toplevelfs->close(s_toplevelfs, fi->fh);
+    int ret = s_toplevelfs->close(s_toplevelfs, fi->fh);
+    if ( ret == -1 ) return -errno;
+    else return 0;
 }
 
 static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info *fi){
@@ -156,13 +189,15 @@ static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 	temp_buf_off+=dirent_engine->adjusted_dirent_size( strlen(dir_item->d_name) );
 	//add item to fuse buffer by filler function
 	if ( filler(buf, dir_item->d_name, NULL, 0) != 0 ){
-	    return ENOMEM;
+	    return -ENOMEM;
 	}
     }
 
     if ( getdents_buf_len == 0 ){
 	temp_buf_off = sizeof(temp_buf);
     }
+    else if (getdents_buf_len < 0)
+	return -errno;
 
     return ret;
 }
@@ -177,11 +212,15 @@ static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
 /* } */
  
 static int op_ftruncate(const char *path, off_t length, struct fuse_file_info *finfo){
-    return s_toplevelfs->ftruncate_size(s_toplevelfs, finfo->fh, length);
+    int ret = s_toplevelfs->ftruncate_size(s_toplevelfs, finfo->fh, length);
+    if ( ret == -1 ) return errno;
+    else return 0;
 }
 
 static int op_fgetattr(const char *path, struct stat *st, struct fuse_file_info *finfo){
-    return s_toplevelfs->fstat(s_toplevelfs, finfo->fh, st);
+    int ret = s_toplevelfs->fstat(s_toplevelfs, finfo->fh, st);
+    if ( ret == -1 ) return errno;
+    else return 0;
 }
 
  
