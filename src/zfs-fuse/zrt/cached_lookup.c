@@ -19,9 +19,13 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <sys/statvfs.h>
+#include <string.h>
+#include <alloca.h>
 
-#include "cached_lookup.h"
+#include "path_utils.h"
 #include "lowlevel_filesystem.h"
+#include "cached_lookup.h"
+
 
 struct CachedLookup{
     struct CachedLookupPublicInterface public_;
@@ -31,13 +35,55 @@ struct CachedLookup{
 
 static int cached_lookup_inode_by_path(struct CachedLookupPublicInterface* cached_lookup, 
 				       const char *path){
-    //cached_lookup->lowlevelfs->lookup();
+    int component_len;
+    const char *component; 
+    int temp_cursor;
+    int inode=-1;
+    int proceed=1;
+    INIT_TEMP_CURSOR(&temp_cursor);
+    while ( proceed && 
+	   (component = path_component_forward( &temp_cursor, path, &component_len)) != NULL ){
+	/*root inode=3*/
+	if ( component_len ==1 && component[0] == '/' ){
+	    inode = 3;
+	}
+	else{
+	    assert(inode>=3);
+	    inode = cached_lookup->inode_by_name(cached_lookup, 
+						 inode, 
+						 strndupa( component, component_len ) );
+	    
+	}
+    }
+    return inode;
 }
+
 static int cached_lookup_parent_inode_by_path(struct CachedLookupPublicInterface* cached_lookup, 
 					      const char *path){
+    int temp_cursor;
+    int result_len;
+    const char *res;
+    INIT_TEMP_CURSOR(&temp_cursor);
+    res = path_subpath_backward(&temp_cursor, path, &result_len); /*rewind to last component*/
+    /*if path not root*/
+    if ( strcmp("/", path) ){
+	res = path_subpath_backward(&temp_cursor, path, &result_len); /*rewind to pre-last component*/
+    }
+
+    /*if no parent - root path was passed*/
+    if ( res == NULL )
+	return -1;
+    else{
+	return cached_lookup->inode_by_path(cached_lookup, 
+					    strndupa( res, result_len ) );
+    }
 }
+
 static int cached_lookup_inode_by_name(struct CachedLookupPublicInterface* cached_lookup, 
 				       int parent_inode, const char *name){
+    struct CachedLookup* cached_lookup_impl = (struct CachedLookup*)cached_lookup;
+    return cached_lookup_impl->lowlevelfs->
+	lookup(cached_lookup_impl->lowlevelfs, parent_inode, name);
 }
 
 
@@ -54,6 +100,7 @@ cached_lookup_construct( struct LowLevelFilesystemPublicInterface* lowlevelfs ){
     struct CachedLookup* this_ = (struct CachedLookup*)malloc( sizeof(struct CachedLookup) );
     this_->public_ = KCachedLookup;
     this_->lowlevelfs = lowlevelfs;
+    test_path_utils();
     return (struct CachedLookupPublicInterface*)this_;
 }
 

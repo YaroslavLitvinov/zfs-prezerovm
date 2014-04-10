@@ -51,13 +51,13 @@ extern "C" {
     }
 
 #define GET_INODE_ENSURE_EXIST(fs, path, inode_p)				\
-    if ( (*(inode_p)=fs->cached_lookup->inode_by_path((fs)->cached_lookup, (path)) ) == -1 ){ \
+    if ( (*(inode_p)=fs->cached_lookup->inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
 	SET_ERRNO(ENOENT);						\
 	return -1;							\
     }
 
 #define GET_PARENT_ENSURE_EXIST(fs, path, inode_p)				\
-    if ( (*(inode_p)=fs->cached_lookup->inode_by_path((fs)->cached_lookup, (path)) ) == -1 ){ \
+    if ( (*(inode_p)=fs->cached_lookup->parent_inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
 	SET_ERRNO(ENOENT);						\
 	return -1;							\
     }
@@ -832,7 +832,7 @@ static struct MountsPublicInterface KTopLevelMountWraper = {
 };
 
 struct MountsPublicInterface* 
-zfs_toplevel_filesystem_construct( struct HandleAllocator* handle_allocator,
+CONSTRUCT_L(ZFS_TOPLEVEL_FILESYSTEM)( struct HandleAllocator* handle_allocator,
 				   struct OpenFilesPool* open_files_pool,
 				   struct CachedLookupPublicInterface* cached_lookup,
 				   struct LowLevelFilesystemPublicInterface* lowlevelfs){

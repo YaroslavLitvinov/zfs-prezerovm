@@ -101,7 +101,7 @@ static int internal_stat(vnode_t *vp, struct stat *stbuf)
 }
 
 static int zfs_lookup(struct LowLevelFilesystemPublicInterface* this_,
-		  int parent_inode, char *name)
+		  int parent_inode, const char *name)
 {
 	if(strlen(name) >= MAXNAMELEN)
 	    return INVERT_SIGN(ENAMETOOLONG);
@@ -645,154 +645,158 @@ static int zfs_open(struct LowLevelFilesystemPublicInterface* this_,
 		    ino_t parent_inode, const char* name, int fflags, uint32_t createmode){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
-	if(name && strlen(name) >= MAXNAMELEN)
-	    return INVERT_SIGN(ENAMETOOLONG);
+	if ( fflags & O_DIRECTORY )
+	    return zfs_opendir(this_, parent_inode);
+	else{
+	    if(name && strlen(name) >= MAXNAMELEN)
+		return INVERT_SIGN(ENAMETOOLONG);
 
-	vfs_t *vfs = zfs->vfs;
-	zfsvfs_t *zfsvfs = vfs->vfs_data;
+	    vfs_t *vfs = zfs->vfs;
+	    zfsvfs_t *zfsvfs = vfs->vfs_data;
 
-	ZFS_ENTER(zfsvfs);
+	    ZFS_ENTER(zfsvfs);
 
-	cred_t *cred = &s_cred;
+	    cred_t *cred = &s_cred;
 
-	/* Map flags */
-	int mode, flags;
+	    /* Map flags */
+	    int mode, flags;
 
-	if(fflags & O_WRONLY) {
-	    mode = VWRITE;
-	    flags = FWRITE;
-	} else if(fflags & O_RDWR) {
-	    mode = VREAD | VWRITE;
-	    flags = FREAD | FWRITE;
-	} else {
-	    mode = VREAD;
-	    flags = FREAD;
-	}
-
-	if(fflags & O_CREAT)
-	    flags |= FCREAT;
-	if(fflags & O_SYNC)
-	    flags |= FSYNC;
-	if(fflags & O_DSYNC)
-	    flags |= FDSYNC;
-	if(fflags & O_RSYNC)
-	    flags |= FRSYNC;
-	if(fflags & O_APPEND)
-	    flags |= FAPPEND;
-	if(fflags & O_LARGEFILE)
-	    flags |= FOFFMAX;
-	if(fflags & O_NOFOLLOW)
-	    flags |= FNOFOLLOW;
-	if(fflags & O_TRUNC)
-	    flags |= FTRUNC;
-	if(fflags & O_EXCL)
-	    flags |= FEXCL;
-
-	znode_t *znode;
-
-	int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
-	if(error) {
-	    ZFS_EXIT(zfsvfs);
-	    /* If the inode we are trying to get was recently deleted
-	       dnode_hold_impl will return EEXIST instead of ENOENT */
-	    return INVERT_SIGN(error == EEXIST ? ENOENT : error);
-	}
-
-	ASSERT(znode != NULL);
-	vnode_t *vp = ZTOV(znode);
-	ASSERT(vp != NULL);
-
-	if (flags & FCREAT) {
-	    enum vcexcl excl;
-
-	    /*
-	     * Wish to create a file.
-	     */
-	    vattr_t vattr;
-	    vattr.va_type = VREG;
-	    vattr.va_mode = mode;
-	    vattr.va_mask = AT_TYPE|AT_MODE;
-	    if (flags & FTRUNC) {
-		vattr.va_size = 0;
-		vattr.va_mask |= AT_SIZE;
+	    if(fflags & O_WRONLY) {
+		mode = VWRITE;
+		flags = FWRITE;
+	    } else if(fflags & O_RDWR) {
+		mode = VREAD | VWRITE;
+		flags = FREAD | FWRITE;
+	    } else {
+		mode = VREAD;
+		flags = FREAD;
 	    }
-	    if (flags & FEXCL)
-		excl = EXCL;
-	    else
-		excl = NONEXCL;
 
-	    vnode_t *new_vp;
-	    /* FIXME: check filesystem boundaries */
-	    error = VOP_CREATE(vp, (char *) name, &vattr, excl, mode, &new_vp, cred, 0, NULL, NULL);
+	    if(fflags & O_CREAT)
+		flags |= FCREAT;
+	    if(fflags & O_SYNC)
+		flags |= FSYNC;
+	    if(fflags & O_DSYNC)
+		flags |= FDSYNC;
+	    if(fflags & O_RSYNC)
+		flags |= FRSYNC;
+	    if(fflags & O_APPEND)
+		flags |= FAPPEND;
+	    if(fflags & O_LARGEFILE)
+		flags |= FOFFMAX;
+	    if(fflags & O_NOFOLLOW)
+		flags |= FNOFOLLOW;
+	    if(fflags & O_TRUNC)
+		flags |= FTRUNC;
+	    if(fflags & O_EXCL)
+		flags |= FEXCL;
 
-	    if(error)
-		goto out;
+	    znode_t *znode;
 
-	    VN_RELE(vp);
-	    vp = new_vp;
-	} else {
-	    /*
-	     * Get the attributes to check whether file is large.
-	     * We do this only if the O_LARGEFILE flag is not set and
-	     * only for regular files.
-	     */
-	    if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
+	    int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
+	    if(error) {
+		ZFS_EXIT(zfsvfs);
+		/* If the inode we are trying to get was recently deleted
+		   dnode_hold_impl will return EEXIST instead of ENOENT */
+		return INVERT_SIGN(error == EEXIST ? ENOENT : error);
+	    }
+
+	    ASSERT(znode != NULL);
+	    vnode_t *vp = ZTOV(znode);
+	    ASSERT(vp != NULL);
+
+	    if (flags & FCREAT) {
+		enum vcexcl excl;
+
+		/*
+		 * Wish to create a file.
+		 */
 		vattr_t vattr;
-		vattr.va_mask = AT_SIZE;
-		if ((error = VOP_GETATTR(vp, &vattr, 0, cred, NULL)))
+		vattr.va_type = VREG;
+		vattr.va_mode = mode;
+		vattr.va_mask = AT_TYPE|AT_MODE;
+		if (flags & FTRUNC) {
+		    vattr.va_size = 0;
+		    vattr.va_mask |= AT_SIZE;
+		}
+		if (flags & FEXCL)
+		    excl = EXCL;
+		else
+		    excl = NONEXCL;
+
+		vnode_t *new_vp;
+		/* FIXME: check filesystem boundaries */
+		error = VOP_CREATE(vp, (char *) name, &vattr, excl, mode, &new_vp, cred, 0, NULL, NULL);
+
+		if(error)
 		    goto out;
 
-		if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
-		    /*
-		     * Large File API - regular open fails
-		     * if FOFFMAX flag is set in file mode
-		     */
-		    error = EOVERFLOW;
-		    goto out;
+		VN_RELE(vp);
+		vp = new_vp;
+	    } else {
+		/*
+		 * Get the attributes to check whether file is large.
+		 * We do this only if the O_LARGEFILE flag is not set and
+		 * only for regular files.
+		 */
+		if (!(flags & FOFFMAX) && (vp->v_type == VREG)) {
+		    vattr_t vattr;
+		    vattr.va_mask = AT_SIZE;
+		    if ((error = VOP_GETATTR(vp, &vattr, 0, cred, NULL)))
+			goto out;
+
+		    if (vattr.va_size > (u_offset_t) MAXOFF32_T) {
+			/*
+			 * Large File API - regular open fails
+			 * if FOFFMAX flag is set in file mode
+			 */
+			error = EOVERFLOW;
+			goto out;
+		    }
 		}
+
+		/*
+		 * Check permissions.
+		 */
+		if (error = VOP_ACCESS(vp, mode, 0, cred, NULL))
+		    goto out;
 	    }
 
-	    /*
-	     * Check permissions.
-	     */
-	    if (error = VOP_ACCESS(vp, mode, 0, cred, NULL))
+	    if ((flags & FNOFOLLOW) && vp->v_type == VLNK) {
+		error = ELOOP;
 		goto out;
-	}
+	    }
 
-	if ((flags & FNOFOLLOW) && vp->v_type == VLNK) {
-	    error = ELOOP;
-	    goto out;
-	}
+	    vnode_t *old_vp = vp;
 
-	vnode_t *old_vp = vp;
+	    error = VOP_OPEN(&vp, flags, cred, NULL);
 
-	error = VOP_OPEN(&vp, flags, cred, NULL);
+	    ASSERT(old_vp == vp);
 
-	ASSERT(old_vp == vp);
-
-	if(error)
-	    goto out;
-
-	struct stat st;
-
-	if(flags & FCREAT) {
-	    error = internal_stat(vp, &st);
 	    if(error)
 		goto out;
+
+	    struct stat st;
+
+	    if(flags & FCREAT) {
+		error = internal_stat(vp, &st);
+		if(error)
+		    goto out;
+	    }
+
+	out:
+	    if(error) {
+		ASSERT(vp->v_count > 0);
+		VN_RELE(vp);
+	    }
+
+	    ZFS_EXIT(zfsvfs);
+
+	    if (flags & FCREAT)
+		return VTOZ(vp)->z_id;
+	    else
+		return INVERT_SIGN(error);
 	}
-
- out:
-	if(error) {
-	    ASSERT(vp->v_count > 0);
-	    VN_RELE(vp);
-	}
-
-	ZFS_EXIT(zfsvfs);
-
-	if (flags & FCREAT)
-	    return VTOZ(vp)->z_id;
-	else
-	    return INVERT_SIGN(error);
 }
 
 static ssize_t zfs_readlink(struct LowLevelFilesystemPublicInterface* this_, 
@@ -1215,7 +1219,7 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
 
 
 struct LowLevelFilesystemPublicInterface* 
-zfs_filesystem_construct (vfs_t *vfs, 
+CONSTRUCT_L(ZFS_FILESYSTEM) (vfs_t *vfs, 
 			  struct DirentEnginePublicInterface* dirent_engine){
 	struct ZfsFilesystem* this_ = malloc(sizeof(struct ZfsFilesystem));
 	this_->public_ = s_zfs_filesystem_interface;
