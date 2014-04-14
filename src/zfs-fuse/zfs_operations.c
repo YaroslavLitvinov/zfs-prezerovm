@@ -94,9 +94,9 @@ static int op_symlink(const char *oldpath, const char *newpath){
     else return 0;
 }
  
-/* static int op_rename(const char *oldpath, const char *newpath){ */
-/*     return s_toplevelfs->rename(s_toplevelfs, oldpath, newpath); */
-/* } */
+static int op_rename(const char *oldpath, const char *newpath){
+    return s_toplevelfs->rename(s_toplevelfs, oldpath, newpath);
+}
  
 static int op_link(const char *oldpath, const char *newpath){
     int ret = s_toplevelfs->link(s_toplevelfs, oldpath, newpath);
@@ -270,7 +270,7 @@ struct fuse_operations s_zfs_operation = {
     .unlink   = op_unlink,   //ok
     .rmdir    = op_rmdir,    //ok
     .symlink  = op_symlink,  //added
-    //op_rename,   //ZRT has not (added on zfs side)
+    .rename   = op_rename,   //ZRT has not (added on zfs side)
     .link     = op_link,     //link
     .chmod    = op_chmod,    //ZFS-FUSE not support it
     .chown    = op_chown,    //ZFS-FUSE not support it

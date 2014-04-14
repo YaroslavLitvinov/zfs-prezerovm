@@ -66,9 +66,11 @@ struct LowLevelFilesystemPublicInterface{
 		  ino_t parent_inode, const char* name);
     int (*link)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t inode, ino_t new_parent, const char *newname);
-    int (*rename)(struct LowLevelFilesystemPublicInterface* this_, 
+#ifndef __native_client__
+    int (*rename)(struct LowLevelFilesystemPublicInterface* this_,
 		      ino_t parent, const char *name,
 		      ino_t new_parent, const char *newname);
+#endif //__native_client__
     int (*ftruncate_size)(struct LowLevelFilesystemPublicInterface* this_, 
 			  ino_t inode, off_t length);
     struct DirentEnginePublicInterface* dirent_engine;

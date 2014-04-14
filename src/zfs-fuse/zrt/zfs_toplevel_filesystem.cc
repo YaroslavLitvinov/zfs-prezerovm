@@ -821,6 +821,36 @@ static int toplevel_link(struct MountsPublicInterface* this_, const char* oldpat
     return ret;
 }
 
+
+static int toplevel_rename(struct MountsPublicInterface* this_, const char* oldpath, const char* newpath){
+    int ret;
+    struct ZfsTopLevelFs* fs = (struct ZfsTopLevelFs*)this_;
+    int old_inode;
+    int old_parent_inode, new_parent_inode;
+
+    CHECK_FUNC_ENSURE_EXIST(fs, link);
+    GET_INODE_ENSURE_EXIST(fs, oldpath, &old_inode);
+    GET_PARENT_ENSURE_EXIST(fs, oldpath, &old_parent_inode);
+    GET_PARENT_ENSURE_EXIST(fs, newpath, &new_parent_inode);
+
+    const char* oldname = name_from_path( oldpath);
+    const char* newname = name_from_path( newpath);
+    if ( oldname == NULL || newname == NULL ){
+	SET_ERRNO(ENOTDIR);
+	return -1;
+    }
+
+    if ( (ret=fs->lowlevelfs->rename( fs->lowlevelfs, 
+				      old_parent_inode, oldname,
+				      new_parent_inode, newname )) < 0 ){
+	SET_ERRNO(-ret);
+	return -1;
+    }
+
+    return ret;
+}
+
+
 static struct MountsPublicInterface KTopLevelMountWraper = {
     toplevel_readlink,
     toplevel_symlink,
@@ -847,6 +877,7 @@ static struct MountsPublicInterface KTopLevelMountWraper = {
     toplevel_fcntl,
     toplevel_remove,
     toplevel_unlink,
+    toplevel_rename,
     toplevel_access,
     toplevel_ftruncate_size,
     toplevel_truncate_size,
