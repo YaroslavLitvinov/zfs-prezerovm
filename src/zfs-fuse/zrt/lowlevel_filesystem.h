@@ -28,7 +28,7 @@ struct stat;
 
 struct LowLevelFilesystemPublicInterface{
     int (*lookup)(struct LowLevelFilesystemPublicInterface* this_,
-		  ino_t parent_inode, const char *name);
+		  int parent_inode, const char *name);
     ssize_t (*readlink)(struct LowLevelFilesystemPublicInterface* this_,
 			ino_t inode, char *buf, size_t bufsize);
     int (*symlink)(struct LowLevelFilesystemPublicInterface* this_, 
@@ -54,7 +54,8 @@ struct LowLevelFilesystemPublicInterface{
     ssize_t (*pwrite)(struct LowLevelFilesystemPublicInterface* this_,
 		      ino_t inode, const void *buf, size_t nbyte, off_t offset);
     int (*getdents)(struct LowLevelFilesystemPublicInterface* this_, 
-		    ino_t inode, void *buf, unsigned int count, off_t offset);
+		    ino_t inode, void *buf, unsigned int count, off_t offset,
+		    int *lastcall_workaround);
     int (*fsync)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t inode);
     int (*close)(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags);

@@ -172,27 +172,37 @@ static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
     static char temp_buf[PATH_MAX];
     static int  temp_buf_off = sizeof(temp_buf);
     static int  getdents_buf_len = 0;
-
+    unsigned long d_ino;
+    unsigned long d_type;
+    const char *d_name;
     int ret=0;
     struct DirentEnginePublicInterface *dirent_engine = INSTANCE_L(DIRENT_ENGINE)();
 
     /*handle already readed dirent in temp buffer OR read new by getdents call*/
-    while( temp_buf_off < getdents_buf_len || 
+    while( temp_buf_off < getdents_buf_len ||  
 	   (getdents_buf_len=s_toplevelfs->getdents(s_toplevelfs, fi->fh, temp_buf, sizeof(temp_buf))) > 0 ){
 	assert(getdents_buf_len<=sizeof(temp_buf));
 	/*check if all info handled in temp_buf*/
 	if ( temp_buf_off >= getdents_buf_len ){
 	    temp_buf_off=0;
 	}
-	//extract dir_item from temp getdents's buffer
-	struct dirent *dir_item = (struct dirent *)temp_buf[temp_buf_off];
-	temp_buf_off+=dirent_engine->adjusted_dirent_size( strlen(dir_item->d_name) );
-	//add item to fuse buffer by filler function
-	if ( filler(buf, dir_item->d_name, NULL, 0) != 0 ){
-	    return -ENOMEM;
+	//extract item from getdents's buffer
+	while( NULL != (d_name = dirent_engine
+			->get_next_item_from_dirent_buf( temp_buf, //buf
+							 getdents_buf_len, //bufsize
+							 &temp_buf_off, //cursor
+							 &d_ino, &d_type )) ){
+#ifdef DEBUG
+			printf("-----dir=%s\n", d_name);fflush(0);
+#endif
+	    //add item to fuse buffer by filler function
+	    if ( filler(buf, d_name, NULL, 0) != 0 ){
+		return -ENOMEM;
+	    }
 	}
+	if ( d_name == NULL )
+	    temp_buf_off = sizeof(temp_buf);
     }
-
     if ( getdents_buf_len == 0 ){
 	temp_buf_off = sizeof(temp_buf);
     }

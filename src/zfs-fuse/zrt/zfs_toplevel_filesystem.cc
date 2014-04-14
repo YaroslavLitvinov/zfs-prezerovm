@@ -460,17 +460,43 @@ static int toplevel_getdents(struct MountsPublicInterface* this_, int fd, void *
 
     ssize_t readed=0;
 
-    if ( (readed=fs->lowlevelfs
-	  ->getdents(fs->lowlevelfs, entry->inode, (DIRENT*)buf, count, ofd->offset)) < 0 ){
-	SET_ERRNO(-readed);
-    }
+    /*workaround for zfs, when calling getdents with nonexist offset
+     pos it wrongly returns last dir component, so just save flag of
+     directory end and do not call getdents if it already 1*/
+    int enddir_workaround = ofd->channel_sequential_offset; 
 
-    if ( (ret=readed) > 0 ){
-	int ret2;
-	ret2 = fs->open_files_pool->set_offset( entry->open_file_description_id, 
-						ofd->offset + readed );
-	assert( ret2 == 0 );
+    if ( enddir_workaround == 0 ){
+	/*For ZFS pass offset that is item index but not a byte offset,
+	  so zfs item offset it's items count in getdents buffer*/
+	if ( (readed=fs->lowlevelfs
+	      ->getdents(fs->lowlevelfs, entry->inode, (DIRENT*)buf, count, ofd->offset,
+			 &enddir_workaround )) < 0 ){
+	    SET_ERRNO(-readed);
+	}
+
+	if ( (ret=readed) > 0 ){
+#ifndef __native_client__
+	    int cursor=0;
+	    unsigned long d_ino, d_type;
+	    int zfs_readdir_offset=0;
+	    struct DirentEnginePublicInterface *dirent_engine = INSTANCE_L(DIRENT_ENGINE)();
+	    while( NULL != dirent_engine->get_next_item_from_dirent_buf( (char*)buf, readed, 
+									 &cursor, &d_ino, &d_type) )
+		++zfs_readdir_offset;
+	    readed = zfs_readdir_offset;
+#endif //__native_client__
+	    int ret2;
+	    ret2 = fs->open_files_pool->set_offset( entry->open_file_description_id, 
+						    ofd->offset + readed );
+	    assert( ret2 == 0 );
+	}
+
+	/*save enddir flag for workaround*/
+	fs->open_files_pool->set_offset_sequential_channel(entry->open_file_description_id, 
+							   enddir_workaround);
     }
+    else
+	ret = 0;
 
     return ret;
 }

@@ -16,21 +16,31 @@
  */
 
 #include <stddef.h> //size_t 
+#include <unistd.h> //ssize_t
 #include "zrt_defines.h" //INSTANCE_L
 
 /*name of constructor*/
 #define DIRENT_ENGINE get_dirent_engine
 
+#ifdef __native_client__
 #define DIRENT struct dirent
+#else
+#define DIRENT struct dirent64
+#endif //__native_client__
 
 struct DirentEnginePublicInterface{
     size_t (*adjusted_dirent_size)(int d_name_len);
-    size_t (*add_dirent_into_buf)( char *buf, 
-				   int buf_size, 
-				   unsigned long d_ino, 
-				   unsigned long d_off,
-				   unsigned long mode,
-				   const char *d_name );
+    /*@return size of added dirent, -1 if no space in buf*/
+    ssize_t (*add_dirent_into_buf)( char *buf, 
+				    int buf_size, 
+				    unsigned long d_ino, 
+				    unsigned long d_off,
+				    unsigned long mode,
+				    const char *d_name );
+    /*@return item, or NULL if no more items*/
+    const char* (*get_next_item_from_dirent_buf)(char *buf, int buf_size, int *cursor, 
+					 unsigned long *d_ino, 
+					 unsigned long *d_type );
 };
 
 

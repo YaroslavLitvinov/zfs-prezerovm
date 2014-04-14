@@ -65,7 +65,7 @@ struct ZfsFilesystem{
     vfs_t *vfs;
 };
 
-
+static off_t s_zfs_dirent_off;
 static cred_t s_cred;
 
 static int internal_stat(vnode_t *vp, struct stat *stbuf)
@@ -474,8 +474,10 @@ static ssize_t zfs_pwrite(struct LowLevelFilesystemPublicInterface* this_,
 	return INVERT_SIGN(error);
 }
 
+
 static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_, 
-			ino_t inode, void *buf, unsigned int count, off_t offset){
+			ino_t inode, void *buf, unsigned int count, off_t offset,
+			int *lastcall_workaround){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	vfs_t *vfs = zfs->vfs;
@@ -502,11 +504,6 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 
 	cred_t *cred = &s_cred;
 
-	union {
-	    char buf[DIRENT64_RECLEN(MAXNAMELEN)];
-	    struct dirent64 dirent;
-	} entry;
-
 	iovec_t iovec;
 	uio_t uio;
 	uio.uio_iov = &iovec;
@@ -519,43 +516,25 @@ static int zfs_getdents(struct LowLevelFilesystemPublicInterface* this_,
 
 	int outbuf_off = 0;
 	int outbuf_resid = count;
-
 	off_t next = offset;
+	
+	iovec.iov_base = buf;
+	iovec.iov_len = count;
+	uio.uio_resid = iovec.iov_len;
+	uio.uio_loffset = next;
 
-	for(;;) {
-	    iovec.iov_base = entry.buf;
-	    iovec.iov_len = sizeof(entry.buf);
-	    uio.uio_resid = iovec.iov_len;
-	    uio.uio_loffset = next;
-
-	    error = VOP_READDIR(vp, &uio, cred, &eofp, NULL, 0);
-	    if(error)
-		goto out;
-
-	    /* No more directory entries */
-	    if(iovec.iov_base == entry.buf)
-		break;
-
-	    size_t dsize = zfs->public_.dirent_engine
-		->add_dirent_into_buf( buf + outbuf_off, 
-				       count - outbuf_off, 
-				       entry.dirent.d_ino, 
-				       0, /*mode*/
-				       entry.dirent.d_off,
-				       entry.dirent.d_name );
-	    if ( dsize == -1 ){
-		break;
-	    }
-
-	    outbuf_off += dsize;
-	    outbuf_resid -= dsize;
-	    next = entry.dirent.d_off;
-	}
+	error = VOP_READDIR(vp, &uio, cred, &eofp, NULL, 0);
+	*lastcall_workaround = eofp;
+	if(error)
+	    goto out;
 
  out:
 	ZFS_EXIT(zfsvfs);
 
-	return INVERT_SIGN(error);
+	if ( uio.uio_loffset > 0 )
+	    return iovec.iov_base - buf;
+	else
+	    return INVERT_SIGN(error);
 }
 
 static int zfs_opendir(struct LowLevelFilesystemPublicInterface* this_, ino_t inode)

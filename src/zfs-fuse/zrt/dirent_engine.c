@@ -22,10 +22,23 @@
 #include <sys/stat.h>
 #include <string.h>
 #include <unistd.h>
-#include <dirent.h>
+
+#ifdef __native_client__
+#  include <dirent.h>
+#else
+#  include <sys/dirent.h>
+#endif //__native_client__
+
+/*dirent structure not have constant size it's can be vary depends on name length.       
+  also dirent size should be multiple of the 8 bytes, so adjust it*/
+#define ZRT_DIRENTLEN(d_name_len)						\
+    ROUND_UP( (offsetof(DIRENT, d_name) + d_name_len +1 /* NUL termination */), 8 )
+
 
 #define ROUND_UP(N, S) ((((N) + (S) - 1) / (S)) * (S))
 
+
+#ifdef __native_client__
 static int d_type_from_mode(unsigned int mode){
     switch (mode & S_IFMT) {
     case S_IFBLK:  return DT_BLK;
@@ -38,18 +51,18 @@ static int d_type_from_mode(unsigned int mode){
     default:       return DT_UNKNOWN;
     }
 }
+#endif //__native_client__
 
 static size_t adjusted_dirent_size(int d_name_len){
-    /*dirent structure not have constant size it's can be vary depends on name length.       
-      also dirent size should be multiple of the 8 bytes, so adjust it*/
-    size_t adjusted_size = 
-	offsetof(DIRENT, d_name) + d_name_len +1 /* NUL termination */;
-    adjusted_size = ROUND_UP( adjusted_size, 8 );
-    return adjusted_size;
+#ifdef __native_client__
+    return ZRT_DIRENTLEN(d_name_len);
+#else
+    return DIRENT64_RECLEN(d_name_len);
+#endif //__native_client__
 }
 
 /*low level function, copy dirent args into buf*/
-static size_t put_dirent_into_buf( char *buf, 
+static ssize_t put_dirent_into_buf( char *buf, 
 				   int buf_size, 
 				   unsigned long d_ino, 
 				   unsigned long d_off,
@@ -67,10 +80,12 @@ static size_t put_dirent_into_buf( char *buf,
 
     /*if size of the current dirent data is less than available buffer size
      then fill it by data*/
-    if ( adjusted_size < buf_size ){
+    if ( adjusted_size <= buf_size ){
         dirent->d_reclen = adjusted_size;
         dirent->d_ino = d_ino;
+#ifdef __native_client__
 	dirent->d_type = d_type_from_mode(mode);
+#endif
         if ( d_off == 0x7fffffff )
             dirent->d_off = 0x7fffffff;
         else
@@ -96,9 +111,27 @@ static size_t put_dirent_into_buf( char *buf,
     }
 }
 
+static const char *get_next_item_from_dirent_buf(char *buf, int buf_size, int *cursor, 
+						 unsigned long *d_ino, 
+						 unsigned long *d_type ){
+    /*read from buffer which filled by getdents items back*/
+    if( (*cursor+adjusted_dirent_size(1)) <= buf_size ){
+	DIRENT *dir_item = (DIRENT *)&buf[*cursor];
+	*cursor += adjusted_dirent_size( strlen(dir_item->d_name) );
+	*d_ino  = dir_item->d_ino;
+#ifdef __native_client__
+	*d_type = dir_item->d_type;
+#endif
+	return dir_item->d_name;
+    }
+    else
+	return NULL;
+}
+
 struct DirentEnginePublicInterface s_dirent_engine = {
     adjusted_dirent_size,
-    put_dirent_into_buf
+    put_dirent_into_buf,
+    get_next_item_from_dirent_buf
 };
 
 
