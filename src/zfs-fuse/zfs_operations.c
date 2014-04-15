@@ -64,12 +64,6 @@ static int op_readlink(const char *path, char *buf, size_t bufsize){
     else return -errno;
 }
 
-static int op_mknod(const char *path, mode_t mode, dev_t dev){
-    int ret = s_toplevelfs->mknod(s_toplevelfs, path, mode, dev);
-    if ( ret == -1 ) return -errno;
-    else return 0;
-}
-
 static int op_mkdir(const char *path, mode_t mode){
     int ret = s_toplevelfs->mkdir(s_toplevelfs, path, mode);
     if ( ret == -1 ) return -errno;
@@ -128,13 +122,13 @@ static int op_open(const char *path, struct fuse_file_info *fi){
 static int op_read(const char *path, char *buf, size_t bufsize, off_t offset, struct fuse_file_info *fi){
     int ret = s_toplevelfs->pread(s_toplevelfs, fi->fh, buf, bufsize, offset);
     if ( ret == -1 ) return -errno;
-    else return 0;
+    else return ret;
 }
  
 static int op_write(const char *path, const char *buf, size_t bufsize, off_t offset, struct fuse_file_info *fi){
     int ret = s_toplevelfs->pwrite(s_toplevelfs, fi->fh, buf, bufsize, offset);
-    if ( ret == -1 ) return -errno;
-    else return 0;
+    if ( ret == 1 ) return -errno;
+    else return ret;
 }
  
 static int op_statvfs(const char *path, struct statvfs *buf){
@@ -217,9 +211,15 @@ static int op_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t
  
 /* void(* 	destroy )(void *){ */
 /* } */
- 
-/* int(* 	create )(const char *, mode_t, struct fuse_file_info *){ */
-/* } */
+
+static int op_create(const char *path, mode_t mode, struct fuse_file_info *fi){
+    int fd=s_toplevelfs->open(s_toplevelfs, path, fi->flags, mode);
+    if ( fd < 0 ){
+        return -errno;
+    }
+    fi->fh = fd;
+    return 0;
+}
  
 static int op_ftruncate(const char *path, off_t length, struct fuse_file_info *finfo){
     int ret = s_toplevelfs->ftruncate_size(s_toplevelfs, finfo->fh, length);
@@ -265,7 +265,7 @@ static int op_fgetattr(const char *path, struct stat *st, struct fuse_file_info 
 struct fuse_operations s_zfs_operation = {
     .getattr  = op_getattr,  //ok stat
     .readlink = op_readlink, //added
-    .mknod    = op_mknod,    //added
+    //.mknod    = op_mknod,    //ZRT has no
     .mkdir    = op_mkdir,    //ok
     .unlink   = op_unlink,   //ok
     .rmdir    = op_rmdir,    //ok
@@ -293,7 +293,7 @@ struct fuse_operations s_zfs_operation = {
     //init,     //ZRT has not
     //destroy,  //ZFS-FUSE has, ZRT has not, not needed
     .access   = op_access,   //ZRT has not, now has
-    //create,   //ZRT has not
+    .create   = op_create,   //ZRT has not, now has only fuse layer
     .ftruncate= op_ftruncate,//ZFS-FUSE has & ZRT has
     .fgetattr = op_fgetattr, //ZRT has not
     //lock,     //ZRT has not

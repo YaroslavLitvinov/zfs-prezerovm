@@ -68,6 +68,40 @@ struct ZfsFilesystem{
 static off_t s_zfs_dirent_off;
 static cred_t s_cred;
 
+static void get_zfs_flags_from_standard_open_flags_mode( int std_flags, 
+							 int *zfs_flags, int *zfs_mode ){
+    if(std_flags & O_WRONLY) {
+	*zfs_mode = VWRITE;
+	*zfs_flags = FWRITE;
+    } else if(std_flags & O_RDWR) {
+	*zfs_mode = VREAD | VWRITE;
+	*zfs_flags = FREAD | FWRITE;
+    } else {
+	*zfs_mode = VREAD;
+	*zfs_flags = FREAD;
+    }
+
+    if(std_flags & O_CREAT)
+	*zfs_flags |= FCREAT;
+    if(std_flags & O_SYNC)
+	*zfs_flags |= FSYNC;
+    if(std_flags & O_DSYNC)
+	*zfs_flags |= FDSYNC;
+    if(std_flags & O_RSYNC)
+	*zfs_flags |= FRSYNC;
+    if(std_flags & O_APPEND)
+	*zfs_flags |= FAPPEND;
+    if(std_flags & O_LARGEFILE)
+	*zfs_flags |= FOFFMAX;
+    if(std_flags & O_NOFOLLOW)
+	*zfs_flags |= FNOFOLLOW;
+    if(std_flags & O_TRUNC)
+	*zfs_flags |= FTRUNC;
+    if(std_flags & O_EXCL)
+	*zfs_flags |= FEXCL;
+}
+
+
 static int internal_stat(vnode_t *vp, struct stat *stbuf)
 {
 	ASSERT(vp != NULL);
@@ -209,71 +243,6 @@ static int zfs_stat(struct LowLevelFilesystemPublicInterface* this_,
 	ZFS_EXIT(zfsvfs);
 	return INVERT_SIGN(error);
 }
-
-static int zfs_mknod(struct LowLevelFilesystemPublicInterface* this_, 
-		     ino_t parent_inode, const char *name, mode_t mode, dev_t rdev)
-{
-	if(strlen(name) >= MAXNAMELEN)
-	    return INVERT_SIGN(ENAMETOOLONG);
-
-	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
-
-	vfs_t *vfs = zfs->vfs;
-	zfsvfs_t *zfsvfs = vfs->vfs_data;
-
-	ZFS_ENTER(zfsvfs);
-
-	znode_t *znode;
-
-	int error = zfs_zget(zfsvfs, parent_inode, &znode, B_FALSE);
-	if(error) {
-		ZFS_EXIT(zfsvfs);
-		/* If the inode we are trying to get was recently deleted
-		   dnode_hold_impl will return EEXIST instead of ENOENT */
-		return error == EEXIST ? INVERT_SIGN(ENOENT) : INVERT_SIGN(error);
-	}
-
-	ASSERT(znode != NULL);
-	vnode_t *dvp = ZTOV(znode);
-	ASSERT(dvp != NULL);
-
-	cred_t * cred = &s_cred;
-
-	vattr_t vattr;
-	vattr.va_type = IFTOVT(mode);
-	vattr.va_mode = mode & PERMMASK;
-	vattr.va_mask = AT_TYPE | AT_MODE;
-
-	if(mode & (S_IFCHR | S_IFBLK)) {
-		vattr.va_rdev = rdev;
-		vattr.va_mask |= AT_RDEV;
-	}
-
-	vnode_t *vp = NULL;
-
-	/* FIXME: check filesystem boundaries */
-	error = VOP_CREATE(dvp, (char *) name, &vattr, EXCL, 0, &vp, cred, 0, NULL, NULL);
-
-	VN_RELE(dvp);
-
-	if(error)
-		goto out;
-
-	ASSERT(vp != NULL);
-
-	struct stat st;
-	error = internal_stat(vp, &st);
-out:
-	if(vp != NULL)
-		VN_RELE(vp);
-	ZFS_EXIT(zfsvfs);
-
-	if ( error == 0 ) 
-	    return VTOZ(vp)->z_id; //inode
-	else
-	    return INVERT_SIGN(error);
-}
-
 
 static int zfs_mkdir(struct LowLevelFilesystemPublicInterface* this_, 
 		     ino_t parent_inode, const char* name, uint32_t mode){
@@ -587,7 +556,7 @@ out:
 }
 
 
-static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int flags){
+static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inode, int fflags){
 	struct ZfsFilesystem* zfs = (struct ZfsFilesystem*)this_;
 
 	vfs_t *vfs = zfs->vfs;
@@ -608,8 +577,11 @@ static int zfs_close(struct LowLevelFilesystemPublicInterface* this_, ino_t inod
 	vnode_t *vp = ZTOV(znode);
 	ASSERT(vp != NULL);
 
-	cred_t *cred = &s_cred;
 
+	int mode, flags;
+	get_zfs_flags_from_standard_open_flags_mode( fflags, &flags, &mode );
+
+	cred_t *cred = &s_cred;
 	VOP_CLOSE(vp, flags, 1, (offset_t) 0, cred, NULL);
 
 	VERIFY(error == 0);
@@ -639,36 +611,7 @@ static int zfs_open(struct LowLevelFilesystemPublicInterface* this_,
 
 	    /* Map flags */
 	    int mode, flags;
-
-	    if(fflags & O_WRONLY) {
-		mode = VWRITE;
-		flags = FWRITE;
-	    } else if(fflags & O_RDWR) {
-		mode = VREAD | VWRITE;
-		flags = FREAD | FWRITE;
-	    } else {
-		mode = VREAD;
-		flags = FREAD;
-	    }
-
-	    if(fflags & O_CREAT)
-		flags |= FCREAT;
-	    if(fflags & O_SYNC)
-		flags |= FSYNC;
-	    if(fflags & O_DSYNC)
-		flags |= FDSYNC;
-	    if(fflags & O_RSYNC)
-		flags |= FRSYNC;
-	    if(fflags & O_APPEND)
-		flags |= FAPPEND;
-	    if(fflags & O_LARGEFILE)
-		flags |= FOFFMAX;
-	    if(fflags & O_NOFOLLOW)
-		flags |= FNOFOLLOW;
-	    if(fflags & O_TRUNC)
-		flags |= FTRUNC;
-	    if(fflags & O_EXCL)
-		flags |= FEXCL;
+	    get_zfs_flags_from_standard_open_flags_mode( fflags, &flags, &mode );
 
 	    znode_t *znode;
 
@@ -1179,7 +1122,6 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
     zfs_statvfs,
     zfs_stat,
     zfs_access,
-    zfs_mknod,
     zfs_mkdir,
     zfs_rmdir,
     zfs_pread,
@@ -1188,7 +1130,6 @@ static struct LowLevelFilesystemPublicInterface s_zfs_filesystem_interface = {
     NULL, //fsync
     zfs_close,
     zfs_open,
-    //zfs_opendir, should not be used (may be only for FUSE)
     zfs_unlink,
     zfs_link,
     zfs_rename,

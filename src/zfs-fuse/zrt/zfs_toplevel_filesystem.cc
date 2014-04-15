@@ -38,26 +38,27 @@ extern "C" {
 
 extern "C" {
 #include "handle_allocator.h" //struct HandleAllocator, struct HandleItem
+#include "path_utils.h"
 #include "open_file_description.h" //struct OpenFilesPool, struct OpenFileDescription
 #include "dirent_engine.h"
 #include "cached_lookup.h"
 }
 
 #define GET_DESCRIPTOR_ENTRY_CHECK(fs, fd, entry_p)	\
-    entry_p = fs->handle_allocator->entry( (fd) );	\
+    entry_p = (fs)->handle_allocator->entry( (fd) );	\
     if ( entry == NULL ){				\
 	SET_ERRNO(EBADF);				\
 	return -1;					\
     }
 
 #define GET_INODE_ENSURE_EXIST(fs, path, inode_p)				\
-    if ( (*(inode_p)=fs->cached_lookup->inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
+    if ( (*(inode_p)=(fs)->cached_lookup->inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
 	SET_ERRNO(ENOENT);						\
 	return -1;							\
     }
 
 #define GET_PARENT_ENSURE_EXIST(fs, path, inode_p)				\
-    if ( (*(inode_p)=fs->cached_lookup->parent_inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
+    if ( (*(inode_p)=(fs)->cached_lookup->parent_inode_by_path((fs)->cached_lookup, (path)) ) == -2 ){ \
 	SET_ERRNO(ENOENT);						\
 	return -1;							\
     }
@@ -80,15 +81,11 @@ struct ZfsTopLevelFs{
 };
 
 
-static const char* name_from_path( std::string path ){
-    /*retrieve directory name, and compare name length with max available*/
-    size_t pos=path.rfind ( '/' );
-    int namelen = 0;
-    if ( pos != std::string::npos ){
-	namelen = path.length() -(pos+1);
-	return path.c_str()+path.length()-namelen;
-    }
-    return NULL;
+static const char* name_from_path( const char* path ){
+    int reslen;
+    int temp_cursor;
+    INIT_TEMP_CURSOR(&temp_cursor);
+    return path_component_backward(&temp_cursor, path, &reslen);
 }
 
 static int is_dir( struct LowLevelFilesystemPublicInterface* this_, ino_t inode ){
@@ -216,28 +213,28 @@ static int toplevel_stat(struct MountsPublicInterface* this_, const char* path, 
     return ret;
 }
 
-static int toplevel_mknod(struct MountsPublicInterface* this_, 
-			  const char* path, mode_t mode, dev_t dev){
-    struct ZfsTopLevelFs* fs = (struct ZfsTopLevelFs*)this_;
-    int parent_inode;
-    int ret = -1;
+// static int toplevel_mknod(struct MountsPublicInterface* this_, 
+// 			  const char* path, mode_t mode, dev_t dev){
+//     struct ZfsTopLevelFs* fs = (struct ZfsTopLevelFs*)this_;
+//     int parent_inode;
+//     int ret = -1;
 
-    CHECK_FUNC_ENSURE_EXIST(fs, mknod);
-    GET_PARENT_ENSURE_EXIST(fs, path, &parent_inode);
+//     CHECK_FUNC_ENSURE_EXIST(fs, mknod);
+//     GET_PARENT_ENSURE_EXIST(fs, path, &parent_inode);
 
-    const char* name = name_from_path( path);
-    if ( name == NULL ){
-	SET_ERRNO(ENOTDIR);
-	return -1;
-    }
+//     const char* name = name_from_path( path);
+//     if ( name == NULL ){
+// 	SET_ERRNO(ENOTDIR);
+// 	return -1;
+//     }
 
-    if ( (ret=fs->lowlevelfs->mknod(fs->lowlevelfs, parent_inode, name, mode, dev)) < 0 ){
-	SET_ERRNO(-ret);
-	return -1;
-    }
+//     if ( (ret=fs->lowlevelfs->mknod(fs->lowlevelfs, parent_inode, name, mode, dev)) < 0 ){
+// 	SET_ERRNO(-ret);
+// 	return -1;
+//     }
     
-    return ret;
-}
+//     return ret;
+// }
 
 static int toplevel_mkdir(struct MountsPublicInterface* this_, const char* path, uint32_t mode){
     struct ZfsTopLevelFs* fs = (struct ZfsTopLevelFs*)this_;
@@ -584,21 +581,33 @@ static int toplevel_open(struct MountsPublicInterface* this_, const char* path, 
     int ret=-1;
     struct ZfsTopLevelFs* fs = (struct ZfsTopLevelFs*)this_;
     int parent_inode;
+    int inode=0;
+    const char* name;
     struct stat st;
 
     CHECK_FUNC_ENSURE_EXIST(fs, open);
-
     GET_PARENT_ENSURE_EXIST(fs, path, &parent_inode);
 
-    const char* name = name_from_path( path);
-    if ( name == NULL ){
-	SET_ERRNO(ENOTDIR);
-	return -1;
+    if ( CHECK_FLAG(oflag, O_CREAT) ){
+	name = name_from_path( path);
+	if ( name == NULL ){
+	    SET_ERRNO(ENOTDIR);
+	    return -1;
+	}
+	/*create file by name in directory with parent_inode*/
+	ret=fs->lowlevelfs->open(fs->lowlevelfs, parent_inode, name, oflag, mode);
+    }
+    else{
+	/*open file directly by inode*/
+	GET_INODE_ENSURE_EXIST(fs, path, &inode);
+	name=NULL;
+	ret=fs->lowlevelfs->open(fs->lowlevelfs, inode, name, oflag, mode);
     }
 
-    if ( (ret = fs->lowlevelfs->open(fs->lowlevelfs, parent_inode, name, oflag, mode)) >= 0 ){
-	int inode;
-	GET_INODE_ENSURE_EXIST(fs, path, &inode);
+    if ( ret >= 0 ){
+	if ( inode <= 0 ){
+	    GET_INODE_ENSURE_EXIST(fs, path, &inode);
+	}
 	int open_file_description_id = fs->open_files_pool->getnew_ofd(oflag);
 
 	/*ask for file descriptor in handle allocator*/
@@ -858,7 +867,7 @@ static struct MountsPublicInterface KTopLevelMountWraper = {
     toplevel_chmod,
     toplevel_statvfs,
     toplevel_stat,
-    toplevel_mknod,
+    //toplevel_mknod,
     toplevel_mkdir,
     toplevel_rmdir,
     toplevel_read,

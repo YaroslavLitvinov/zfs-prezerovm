@@ -44,8 +44,8 @@ struct MountsPublicInterface{
     int (*statvfs)(struct MountsPublicInterface* this_, const char* path, struct statvfs *buf);
     int (*stat)(struct MountsPublicInterface* this_,const char* path, struct stat *buf);
     //new
-    int (*mknod)(struct MountsPublicInterface* this_,
-		 const char *path, mode_t mode, dev_t dev);
+    /* int (*mknod)(struct MountsPublicInterface* this_, */
+    /* 		 const char *path, mode_t mode, dev_t dev); */
     int (*mkdir)(struct MountsPublicInterface* this_,const char* path, uint32_t mode);
     int (*rmdir)(struct MountsPublicInterface* this_,const char* path);
 

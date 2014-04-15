@@ -43,8 +43,6 @@ struct LowLevelFilesystemPublicInterface{
 		ino_t inode, struct stat *buf);
     int (*access)(struct LowLevelFilesystemPublicInterface* this_, 
 		ino_t inode, int mode);
-    int (*mknod)(struct LowLevelFilesystemPublicInterface* this_,
-		 ino_t parent_inode, const char *name, mode_t mode, dev_t rdev);
     int (*mkdir)(struct LowLevelFilesystemPublicInterface* this_, 
 		 ino_t parent_inode, const char* name, uint32_t mode);
     int (*rmdir)(struct LowLevelFilesystemPublicInterface* this_, 
