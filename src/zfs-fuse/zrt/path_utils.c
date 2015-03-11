@@ -134,6 +134,15 @@ step3 result /1/2
 step4 result NULL
  */
 const char *path_subpath_forward(int *temp_cursor, const char *path, int *result_len){
+    int component_len;
+    int pathlen = strlen(path);
+    const char *component =path_component_forward( temp_cursor, path, &component_len);
+    if( component != NULL ){
+	*result_len = component-path+component_len;
+	return path;
+    }
+    else
+	return NULL;
 }
 
 /*path=/1/2
@@ -192,6 +201,12 @@ int test_path_utils(){
 
     const char *component_subpath_test2[] = { "/1/22", "/1", "/", NULL };
     test_function(path_subpath_backward, "/1/22", component_subpath_test2, 4);
+
+    const char *component_fsubpath_test1[] = { "/", "/1", "/1/22", NULL };
+    test_function(path_subpath_forward, "/1/22/", component_fsubpath_test1, 4);
+
+    const char *component_fsubpath_test2[] = { "/", "/1", "/1/22", NULL };
+    test_function(path_subpath_forward, "/1/22", component_fsubpath_test2, 4);
 
     /*******/
     const char *component_forward_test0[] = { "/", NULL };

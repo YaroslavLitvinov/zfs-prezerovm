@@ -165,7 +165,7 @@ static void new_fs()
 
 	if(nfds == MAX_FDS) {
 		fprintf(stderr, "Warning: filesystem limit (%i) reached, unmounting..\n", MAX_FILESYSTEMS);
-		fuse_unmount(mntpoint);
+		//fuse_unmount(mntpoint);
 		free(mntpoint);
 		return;
 	}
@@ -192,8 +192,8 @@ static void destroy_fs(int i)
 #ifdef DEBUG
 	fprintf(stderr, "Filesystem %i (%s) is being unmounted\n", i, mountpoints[i]);
 #endif
-	fuse_session_reset(fsinfo[i].se);
-	fuse_session_destroy(fsinfo[i].se);
+	//fuse_session_reset(fsinfo[i].se);
+	//fuse_session_destroy(fsinfo[i].se);
 	close(fds[i].fd);
 	fds[i].fd = -1;
 	free(mountpoints[i]);
@@ -201,6 +201,7 @@ static void destroy_fs(int i)
 
 static void *zfsfuse_listener_loop(void *arg)
 {
+    return NULL;
 	size_t bufsize = 0;
 	char *buf = NULL;
 
@@ -247,7 +248,7 @@ static void *zfsfuse_listener_loop(void *arg)
 				}
 
 				int res = fuse_chan_receive(fsinfo[i].ch, buf, fsinfo[i].bufsize);
-				if(res == -1 || fuse_session_exited(fsinfo[i].se)) {
+				if(res == -1 /* || fuse_session_exited(fsinfo[i].se) */ ) {
 					destroy_fs(i);
 					continue;
 				}
@@ -273,7 +274,7 @@ static void *zfsfuse_listener_loop(void *arg)
 				 */
 				VERIFY(pthread_mutex_unlock(&mtx) == 0);
 
-				fuse_session_process(se, buf, res, ch);
+				/* fuse_session_process(se, buf, res, ch); */
 
 				/* Acquire the mutex before proceeding */
 				VERIFY(pthread_mutex_lock(&mtx) == 0);
@@ -332,10 +333,10 @@ void* zfsfuse_listener_start(void* obj)
 		if(fds[i].fd == -1)
 			continue;
 
-		fuse_session_exit(fsinfo[i].se);
-		fuse_session_reset(fsinfo[i].se);
-		fuse_unmount(mountpoints[i]);
-		fuse_session_destroy(fsinfo[i].se);
+		//fuse_session_exit(fsinfo[i].se);
+		//fuse_session_reset(fsinfo[i].se);
+		//fuse_unmount(mountpoints[i]);
+		//fuse_session_destroy(fsinfo[i].se);
 
 		free(mountpoints[i]);
 	}

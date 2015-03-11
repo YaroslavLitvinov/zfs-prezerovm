@@ -10,6 +10,8 @@ install_dir = ARGUMENTS.get('install_dir', '/usr/local/sbin')
 env = Environment()
 
 env['CC'] = 'gcc'
+#env['CC'] = 'x86_64-nacl-gcc'
+
 # -finstrument-functions
 env['LINKFLAGS'] = Split('-pipe -Wall -Werror -g')
 # -finstrument-functions

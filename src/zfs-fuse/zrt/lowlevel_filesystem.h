@@ -24,7 +24,7 @@
 #include <unistd.h> //ssize_t
 
 struct stat;
-
+struct statvfs;
 
 struct LowLevelFilesystemPublicInterface{
     int (*lookup)(struct LowLevelFilesystemPublicInterface* this_,

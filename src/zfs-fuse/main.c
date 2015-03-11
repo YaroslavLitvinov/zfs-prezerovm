@@ -89,62 +89,6 @@ extern vfsops_t *zfs_vfsops;
 extern vfs_t*  s_vfs;
 vfs_t*  s_vfs;
 
-static struct option longopts[] = {
-	{ "no-daemon",
-	  0, /* has-arg */
-	  &cf_daemonize, /* flag */
-	  0 /* val */
-	},
-	{ "pidfile",
-	  1,
-	  NULL,
-	  'p'
-	},
-	{ "help",
-	  0,
-	  NULL,
-	  'h'
-	},
-	{ 0, 0, 0, 0 }
-};
-
-void print_usage(int argc, char *argv[]) {
-	const char *progname = "zfs-fuse";
-	if (argc > 0)
-		progname = argv[0];
-	fprintf(stderr, "Usage: %s [--no-daemon] [-p | --pidfile filename] [-h | --help]\n", progname);
-}
-
-static void parse_args(int argc, char *argv[])
-{
-	int retval;
-	while ((retval = getopt_long(argc, argv, "-hp:", longopts, NULL)) != -1) {
-		switch (retval) {
-			case 1: /* non-option argument passed (due to - in optstring) */
-			case 'h':
-			case '?':
-				print_usage(argc, argv);
-				exit(1);
-			case 'p':
-				if (cf_pidfile != NULL) {
-					print_usage(argc, argv);
-					exit(1);
-				}
-				cf_pidfile = optarg;
-				break;
-			case 0:
-				break; /* flag is not NULL */
-			default:
-				// This should never happen
-				fprintf(stderr, "Internal error: Unrecognized getopt_long return 0x%02x\n", retval);
-				print_usage(argc, argv);
-				exit(1);
-				break;
-		}
-	}
-}
-
-
 static vfs_t* prepare_storage(zfs_handle_t *zfs_handle, char* name, char* mountdir){
 	char mountpoint[ZFS_MAXPROPLEN];
 
@@ -235,11 +179,6 @@ static void* storage_create_thread(void* obj){
 int main(int argc, char *argv[])
 {
 	int ret;
-	//parse_args(argc, argv);
-
-	//if (cf_daemonize) {
-	//	do_daemon(cf_pidfile);
-	//}
 
 	if(do_init() != 0) {
 		do_exit();

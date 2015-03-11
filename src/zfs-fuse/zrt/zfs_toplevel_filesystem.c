@@ -21,28 +21,20 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <stdarg.h>
+#include <errno.h>
 
-extern "C" {
 #include "zrtlog.h"
 #include "zrt_helper_macros.h"
-}
-#include "MemMount.h"
-
-#ifdef __native_client__
-#include "nacl-mounts/util/Path.h"
-#endif //__native_client__
 
 #include "lowlevel_filesystem.h"
 #include "zfs_toplevel_filesystem.h"
 #include "mounts_interface.h"
 
-extern "C" {
 #include "handle_allocator.h" //struct HandleAllocator, struct HandleItem
 #include "path_utils.h"
 #include "open_file_description.h" //struct OpenFilesPool, struct OpenFileDescription
 #include "dirent_engine.h"
 #include "cached_lookup.h"
-}
 
 #define GET_DESCRIPTOR_ENTRY_CHECK(fs, fd, entry_p)	\
     entry_p = (fs)->handle_allocator->entry( (fd) );	\
@@ -76,7 +68,6 @@ struct ZfsTopLevelFs{
     struct OpenFilesPool*   open_files_pool;
     struct CachedLookupPublicInterface* cached_lookup;
     struct LowLevelFilesystemPublicInterface* lowlevelfs;
-    MemMount*               mem_mount_cpp;
     struct MountSpecificPublicInterface* mount_specific_interface;
 };
 
@@ -560,7 +551,7 @@ static off_t toplevel_lseek(struct MountsPublicInterface* this_, int fd, off_t o
 	if (len == -1) {
 	    return -1;
 	}
-	next = static_cast<size_t>(len) + offset;
+	next = (size_t)len + offset;
 	break;
     default:
 	SET_ERRNO(EINVAL);
@@ -912,7 +903,6 @@ CONSTRUCT_L(ZFS_TOPLEVEL_FILESYSTEM)( struct HandleAllocator* handle_allocator,
     this_->open_files_pool = open_files_pool; /*use existing open files pool*/
     this_->cached_lookup = cached_lookup;
     this_->lowlevelfs = lowlevelfs;
-    this_->mem_mount_cpp = new MemMount;
     return (struct MountsPublicInterface*)this_;
 }
 
